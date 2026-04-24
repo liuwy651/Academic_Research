@@ -24,9 +24,24 @@ export default function ConversationPage() {
   const [input, setInput] = useState('')
   const [isStreaming, setIsStreaming] = useState(false)
   const [showTree, setShowTree] = useState(true)
+  const [treeWidth, setTreeWidth] = useState(280)
 
   const bottomRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  // Drag left edge of tree sidebar to resize
+  const onResizeDragDown = (e: React.MouseEvent) => {
+    e.preventDefault()
+    const sx = e.clientX, ow = treeWidth
+    const onMove = (ev: MouseEvent) =>
+      setTreeWidth(Math.max(180, Math.min(560, ow - (ev.clientX - sx))))
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove)
+      document.removeEventListener('mouseup', onUp)
+    }
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', onUp)
+  }
 
   // Load messages when conversation changes (clears active node)
   useEffect(() => {
@@ -165,66 +180,78 @@ export default function ConversationPage() {
   }
 
   return (
-    <div className="flex flex-col h-full overflow-hidden bg-[#0a0a0a]">
-      {/* Header */}
-      <ConversationHeader
-        conversationId={id!}
-        showTree={showTree}
-        onToggleTree={() => setShowTree(v => !v)}
-      />
-
-      {/* Message list */}
-      <div className="flex-1 overflow-y-auto">
-        <div className="max-w-3xl mx-auto px-4 py-6 space-y-6">
-          {messages.length === 0 && !isStreaming && <EmptyState />}
-          {messages.map(msg => (
-            <MessageBubble key={msg.id} message={msg} />
-          ))}
-          <div ref={bottomRef} />
-        </div>
-      </div>
-
-      {/* Input area */}
-      <div className="flex-shrink-0 border-t border-white/[0.06] bg-[#0a0a0a] px-4 py-4">
-        <div className="max-w-3xl mx-auto">
-          <div className="flex items-end gap-3 bg-[#111111] border border-white/[0.08] rounded-2xl px-4 py-3
-                          focus-within:border-white/[0.16] transition-colors">
-            <textarea
-              ref={textareaRef}
-              value={input}
-              onChange={e => setInput(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="Message…"
-              disabled={isStreaming}
-              rows={1}
-              className="flex-1 bg-transparent text-sm text-[#f0f0f0] placeholder-[#3a3a3a]
-                         resize-none outline-none min-h-[22px] max-h-[160px] leading-[22px]
-                         disabled:opacity-50"
-            />
-            <button
-              onClick={sendMessage}
-              disabled={!input.trim() || isStreaming}
-              className="flex-shrink-0 w-8 h-8 bg-violet-600 hover:bg-violet-500
-                         disabled:opacity-25 disabled:cursor-not-allowed
-                         rounded-lg flex items-center justify-center transition-colors cursor-pointer"
-            >
-              <ArrowUp className="w-4 h-4 text-white" />
-            </button>
-          </div>
-          <p className="text-center text-[10px] text-[#282828] mt-2">
-            Enter to send · Shift+Enter for new line
-          </p>
-        </div>
-      </div>
-
-      {/* Floating tree panel */}
-      {showTree && id && (
-        <ConversationTree
-          convId={id}
-          activeNodeId={activeNodeId}
-          onSelectNode={handleNodeClick}
-          onClose={() => setShowTree(false)}
+    <div className="flex h-full overflow-hidden">
+      {/* ── Main chat column ── */}
+      <div className="flex-1 flex flex-col overflow-hidden bg-[#0a0a0a] min-w-0">
+        <ConversationHeader
+          conversationId={id!}
+          showTree={showTree}
+          onToggleTree={() => setShowTree(v => !v)}
         />
+
+        <div className="flex-1 overflow-y-auto">
+          <div className="max-w-3xl mx-auto px-4 py-6 space-y-6">
+            {messages.length === 0 && !isStreaming && <EmptyState />}
+            {messages.map(msg => (
+              <MessageBubble key={msg.id} message={msg} />
+            ))}
+            <div ref={bottomRef} />
+          </div>
+        </div>
+
+        <div className="flex-shrink-0 border-t border-white/[0.06] bg-[#0a0a0a] px-4 py-4">
+          <div className="max-w-3xl mx-auto">
+            <div className="flex items-end gap-3 bg-[#111111] border border-white/[0.08] rounded-2xl px-4 py-3
+                            focus-within:border-white/[0.16] transition-colors">
+              <textarea
+                ref={textareaRef}
+                value={input}
+                onChange={e => setInput(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder="Message…"
+                disabled={isStreaming}
+                rows={1}
+                className="flex-1 bg-transparent text-sm text-[#f0f0f0] placeholder-[#3a3a3a]
+                           resize-none outline-none min-h-[22px] max-h-[160px] leading-[22px]
+                           disabled:opacity-50"
+              />
+              <button
+                onClick={sendMessage}
+                disabled={!input.trim() || isStreaming}
+                className="flex-shrink-0 w-8 h-8 bg-violet-600 hover:bg-violet-500
+                           disabled:opacity-25 disabled:cursor-not-allowed
+                           rounded-lg flex items-center justify-center transition-colors cursor-pointer"
+              >
+                <ArrowUp className="w-4 h-4 text-white" />
+              </button>
+            </div>
+            <p className="text-center text-[10px] text-[#282828] mt-2">
+              Enter to send · Shift+Enter for new line
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Right tree sidebar ── */}
+      {showTree && id && (
+        <div
+          className="flex-shrink-0 flex relative border-l border-white/[0.06] bg-[#0e0e0e] overflow-hidden"
+          style={{ width: treeWidth }}
+        >
+          {/* Drag handle on left edge */}
+          <div
+            onMouseDown={onResizeDragDown}
+            className="absolute left-0 top-0 bottom-0 w-1 cursor-ew-resize z-10
+                       hover:bg-violet-500/30 transition-colors"
+          />
+          <div className="flex-1 overflow-hidden">
+            <ConversationTree
+              convId={id}
+              activeNodeId={activeNodeId}
+              onSelectNode={handleNodeClick}
+            />
+          </div>
+        </div>
       )}
     </div>
   )
