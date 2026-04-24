@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(.venv/bin/python -c \"from app.main import app; print\\('import ok'\\); print\\('routes:', [r.path for r in app.routes]\\)\")",
+      "Bash(npm install *)"
+    ]
+  }
+}
