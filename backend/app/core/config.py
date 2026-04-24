@@ -38,5 +38,10 @@ class Settings(BaseSettings):
     LLM_CONTEXT_WINDOW: int = 8192   # model's total context window in tokens
     LLM_HISTORY_BUDGET: int = 4000   # max tokens reserved for conversation history
 
+    # File upload (S4.5)
+    UPLOAD_DIR: str = "uploads"
+    MAX_FILE_SIZE_MB: int = 50
+    FILE_TOKEN_BUDGET: int = 20000
+
 
 settings = Settings()

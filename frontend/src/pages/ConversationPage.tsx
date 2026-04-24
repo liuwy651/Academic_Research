@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowUp, Bot, GitBranch, MessageSquare } from 'lucide-react'
+import { ArrowUp, Bot, FileText, GitBranch, Loader2, MessageSquare, Paperclip, X } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
@@ -9,8 +9,10 @@ import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { useAuthStore } from '../store/authStore'
 import { useConversationStore } from '../store/conversationStore'
 import { conversationsApi } from '../api/conversations'
+import { filesApi } from '../api/files'
 import ConversationTree from '../components/ConversationTree'
 import type { LocalMessage } from '../types/message'
+import type { PendingFile } from '../types/file'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -42,9 +44,11 @@ export default function ConversationPage() {
     completion: number
     truncated: boolean
   } | null>(null)
+  const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([])
 
   const bottomRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Drag left edge of tree sidebar to resize
   const onResizeDragDown = (e: React.MouseEvent) => {
@@ -106,11 +110,41 @@ export default function ConversationPage() {
       .catch(() => {})
   }, [id, token, setActiveNodeId])
 
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!id) return
+    const files = Array.from(e.target.files ?? [])
+    e.target.value = ''
+    for (const file of files) {
+      const localId = `${Date.now()}-${Math.random()}`
+      setPendingFiles(prev => [...prev, { localId, file, status: 'uploading' }])
+      try {
+        const resp = await filesApi.upload(id, file)
+        setPendingFiles(prev =>
+          prev.map(p => p.localId === localId ? { ...p, status: 'done', fileResponse: resp } : p)
+        )
+      } catch (err: any) {
+        const msg = err?.response?.data?.detail ?? '上传失败'
+        setPendingFiles(prev =>
+          prev.map(p => p.localId === localId ? { ...p, status: 'error', error: msg } : p)
+        )
+      }
+    }
+  }
+
+  const removePendingFile = (localId: string) => {
+    setPendingFiles(prev => prev.filter(p => p.localId !== localId))
+  }
+
   const sendMessage = async () => {
     const content = input.trim()
     if (!content || isStreaming || !id) return
 
+    const fileIds = pendingFiles
+      .filter(p => p.status === 'done' && p.fileResponse)
+      .map(p => p.fileResponse!.id)
+
     setInput('')
+    setPendingFiles([])
     setIsStreaming(true)
 
     const userMsg: LocalMessage = {
@@ -140,7 +174,7 @@ export default function ConversationPage() {
       const response = await fetch(`/api/v1/conversations/${id}/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ content, parent_id: activeNodeId }),
+        body: JSON.stringify({ content, parent_id: activeNodeId, file_ids: fileIds }),
       })
 
       if (!response.ok || !response.body) {
@@ -250,32 +284,60 @@ export default function ConversationPage() {
                 </span>
               </div>
             )}
-            <div className="flex items-end gap-3 bg-[#111111] border border-white/[0.08] rounded-2xl px-4 py-3
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".pdf,.md,.markdown"
+              multiple
+              className="hidden"
+              onChange={handleFileSelect}
+            />
+
+            <div className="bg-[#111111] border border-white/[0.08] rounded-2xl px-4 py-3
                             focus-within:border-white/[0.16] transition-colors">
-              <textarea
-                ref={textareaRef}
-                value={input}
-                onChange={e => setInput(e.target.value)}
-                onKeyDown={handleKeyDown}
-                placeholder="Message…"
-                disabled={isStreaming}
-                rows={1}
-                className="flex-1 bg-transparent text-sm text-[#f0f0f0] placeholder-[#3a3a3a]
-                           resize-none outline-none min-h-[22px] max-h-[160px] leading-[22px]
-                           disabled:opacity-50"
-              />
-              <button
-                onClick={sendMessage}
-                disabled={!input.trim() || isStreaming}
-                className="flex-shrink-0 w-8 h-8 bg-violet-600 hover:bg-violet-500
-                           disabled:opacity-25 disabled:cursor-not-allowed
-                           rounded-lg flex items-center justify-center transition-colors cursor-pointer"
-              >
-                <ArrowUp className="w-4 h-4 text-white" />
-              </button>
+              {pendingFiles.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mb-2.5">
+                  {pendingFiles.map(pf => (
+                    <FileChip key={pf.localId} pf={pf} onRemove={removePendingFile} />
+                  ))}
+                </div>
+              )}
+              <div className="flex items-end gap-2">
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isStreaming}
+                  title="Attach PDF or Markdown"
+                  className="flex-shrink-0 w-7 h-7 flex items-center justify-center
+                             text-[#3a3a3a] hover:text-violet-400 disabled:opacity-30
+                             transition-colors cursor-pointer rounded-md hover:bg-white/[0.04]"
+                >
+                  <Paperclip className="w-4 h-4" />
+                </button>
+                <textarea
+                  ref={textareaRef}
+                  value={input}
+                  onChange={e => setInput(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  placeholder="Message…"
+                  disabled={isStreaming}
+                  rows={1}
+                  className="flex-1 bg-transparent text-sm text-[#f0f0f0] placeholder-[#3a3a3a]
+                             resize-none outline-none min-h-[22px] max-h-[160px] leading-[22px]
+                             disabled:opacity-50"
+                />
+                <button
+                  onClick={sendMessage}
+                  disabled={!input.trim() || isStreaming}
+                  className="flex-shrink-0 w-8 h-8 bg-violet-600 hover:bg-violet-500
+                             disabled:opacity-25 disabled:cursor-not-allowed
+                             rounded-lg flex items-center justify-center transition-colors cursor-pointer"
+                >
+                  <ArrowUp className="w-4 h-4 text-white" />
+                </button>
+              </div>
             </div>
             <p className="text-center text-[10px] text-[#282828] mt-2">
-              Enter to send · Shift+Enter for new line
+              Enter to send · Shift+Enter for new line · PDF/Markdown supported
             </p>
           </div>
         </div>
@@ -355,6 +417,41 @@ function EmptyState() {
         <p className="text-sm font-medium text-[#8a8a8a]">How can I help you today?</p>
         <p className="text-xs text-[#3a3a3a]">Send a message to start the conversation</p>
       </div>
+    </div>
+  )
+}
+
+// ── File chip ──────────────────────────────────────────────────────────────────
+
+function FileChip({ pf, onRemove }: { pf: PendingFile; onRemove: (id: string) => void }) {
+  const name = pf.file.name.length > 24 ? pf.file.name.slice(0, 22) + '…' : pf.file.name
+  const tokenLabel = pf.fileResponse?.token_estimate
+    ? ` · ~${pf.fileResponse.token_estimate.toLocaleString()} tokens`
+    : ''
+
+  return (
+    <div className={`flex items-center gap-1.5 px-2 py-1 rounded-lg text-[11px] font-medium
+      ${pf.status === 'error'
+        ? 'bg-red-500/10 text-red-400 border border-red-500/20'
+        : 'bg-violet-500/10 text-violet-300 border border-violet-500/20'
+      }`}
+    >
+      {pf.status === 'uploading' ? (
+        <Loader2 className="w-3 h-3 animate-spin flex-shrink-0" />
+      ) : (
+        <FileText className="w-3 h-3 flex-shrink-0" />
+      )}
+      <span className="max-w-[160px] truncate">
+        {pf.status === 'error' ? `${name} — ${pf.error}` : `${name}${tokenLabel}`}
+      </span>
+      {pf.status !== 'uploading' && (
+        <button
+          onClick={() => onRemove(pf.localId)}
+          className="ml-0.5 opacity-60 hover:opacity-100 transition-opacity cursor-pointer"
+        >
+          <X className="w-3 h-3" />
+        </button>
+      )}
     </div>
   )
 }

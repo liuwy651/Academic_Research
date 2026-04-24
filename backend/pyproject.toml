@@ -16,6 +16,8 @@ dependencies = [
     "bcrypt>=4.2.0",
     "email-validator>=2.2.0",
     "openai>=1.60.0",
+    "pymupdf>=1.24.0",
+    "python-multipart>=0.0.9",
 ]
 
 [dependency-groups]

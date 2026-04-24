@@ -7,6 +7,7 @@ from pydantic import BaseModel, field_validator
 class ChatRequest(BaseModel):
     content: str
     parent_id: uuid.UUID | None = None
+    file_ids: list[uuid.UUID] = []
 
     @field_validator("content")
     @classmethod

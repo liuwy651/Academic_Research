@@ -21,6 +21,7 @@ from app.services.chat import (
     touch_conversation,
 )
 from app.services.conversation import get_conversation, set_title_by_id
+from app.services.file import attach_files_to_message, get_files_text
 
 router = APIRouter(prefix="/conversations", tags=["chat"])
 
@@ -91,12 +92,23 @@ async def chat_stream(
     else:
         raw_history = []
 
-    # Apply token budget — trim oldest messages to fit within LLM_HISTORY_BUDGET
+    # Fetch and format attached file content
+    files_text = await get_files_text(db, payload.file_ids, conv_id)
+    if files_text:
+        user_content_for_llm = f"{files_text}\n\n---\n{payload.content}"
+    else:
+        user_content_for_llm = payload.content
+
+    # File tokens reduce the available history budget
+    file_tokens = estimate_tokens(files_text) if files_text else 0
+    effective_budget = max(0, settings.LLM_HISTORY_BUDGET - file_tokens)
+
+    # Apply token budget — trim oldest messages to fit within effective budget
     trimmed_history, context_truncated = trim_to_budget(
-        raw_history, payload.content, settings.LLM_HISTORY_BUDGET
+        raw_history, user_content_for_llm, effective_budget
     )
 
-    messages_for_llm = trimmed_history + [{"role": "user", "content": payload.content}]
+    messages_for_llm = trimmed_history + [{"role": "user", "content": user_content_for_llm}]
     prompt_tokens = count_messages_tokens(messages_for_llm)
 
     # Save user message; track whether this is the first exchange for title generation
@@ -107,6 +119,9 @@ async def chat_stream(
         parent_id=user_parent_id, token_count=user_token_count,
     )
     user_msg_id = user_msg.id
+
+    if payload.file_ids:
+        await attach_files_to_message(db, payload.file_ids, user_msg_id, conv_id)
 
     await db.commit()
 
