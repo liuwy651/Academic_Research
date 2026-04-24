@@ -130,7 +130,8 @@ academic_research/
 - [x] S0: 基础骨架（docker-compose、FastAPI+健康检查、React+Vite+TS、Alembic）
 - [x] S1: 用户认证（User 模型、JWT、bcrypt、register/login/me、前端登录注册页、路由守卫）
 - [x] S2: 会话管理（Conversation 模型软删除、CRUD 接口、侧边栏、嵌套路由 Layout+Outlet）
-- [ ] S3: 基础对话
+- [x] S3: 基础对话（Message 模型、SSE 流式输出、Anthropic/OpenAI 双客户端、聊天 UI）
+- [ ] S4: 多轮记忆
 
 ---
 

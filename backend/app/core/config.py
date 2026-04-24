@@ -26,5 +26,13 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24  # 24h
 
+    # LLM
+    LLM_PROVIDER: str = "dashscope"
+    LLM_MODEL: str = "qwen-turbo"
+    LLM_MAX_TOKENS: int = 4096
+    LLM_SYSTEM_PROMPT: str = "You are a helpful AI assistant."
+    DASHSCOPE_API_KEY: str = ""
+    DASHSCOPE_BASE_URL: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+
 
 settings = Settings()

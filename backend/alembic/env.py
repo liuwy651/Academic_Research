@@ -12,7 +12,7 @@ from app.core.config import settings
 from app.core.database import Base
 
 # 在这里 import 所有模型，使其注册到 Base.metadata
-from app.models import user, conversation  # noqa: F401
+from app.models import user, conversation, message  # noqa: F401
 
 config = context.config
 

@@ -24,3 +24,19 @@ body {
 
 /* ── Selection ──────────────────────────────────────────────────────── */
 ::selection { background: rgba(139,92,246,0.28); }
+
+/* ── Streaming cursor ───────────────────────────────────────────────── */
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0; }
+}
+.cursor-blink {
+  display: inline-block;
+  width: 2px;
+  height: 14px;
+  background: #8b5cf6;
+  border-radius: 1px;
+  margin-left: 2px;
+  vertical-align: middle;
+  animation: blink 1s step-start infinite;
+}
