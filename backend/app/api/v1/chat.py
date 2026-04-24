@@ -7,8 +7,10 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
+from app.core.config import settings
 from app.core.database import AsyncSessionLocal, get_db
 from app.llm.client import get_llm_client
+from app.llm.token import count_messages_tokens, estimate_tokens, trim_to_budget
 from app.models.user import User
 from app.schemas.message import ChatRequest, MessageResponse, TreeNodeResponse
 from app.services.chat import (
@@ -85,15 +87,25 @@ async def chat_stream(
     # Build LLM history from the linear path up to user_parent_id
     if user_parent_id is not None:
         history_rows = await get_messages_path(db, conv_id, user_parent_id)
-        messages_for_llm = [{"role": r["role"], "content": r["content"]} for r in history_rows]
+        raw_history = [{"role": r["role"], "content": r["content"]} for r in history_rows]
     else:
-        messages_for_llm = []
+        raw_history = []
 
-    messages_for_llm.append({"role": "user", "content": payload.content})
+    # Apply token budget — trim oldest messages to fit within LLM_HISTORY_BUDGET
+    trimmed_history, context_truncated = trim_to_budget(
+        raw_history, payload.content, settings.LLM_HISTORY_BUDGET
+    )
+
+    messages_for_llm = trimmed_history + [{"role": "user", "content": payload.content}]
+    prompt_tokens = count_messages_tokens(messages_for_llm)
 
     # Save user message; track whether this is the first exchange for title generation
+    user_token_count = estimate_tokens(payload.content)
     is_first_message = conv.title == "New Conversation" and conv.current_node_id is None
-    user_msg = await create_message(db, conv_id, "user", payload.content, parent_id=user_parent_id)
+    user_msg = await create_message(
+        db, conv_id, "user", payload.content,
+        parent_id=user_parent_id, token_count=user_token_count,
+    )
     user_msg_id = user_msg.id
 
     await db.commit()
@@ -107,9 +119,13 @@ async def chat_stream(
 
             new_title: str | None = None
 
+            completion_tokens = estimate_tokens(full_content)
+
             async with AsyncSessionLocal() as save_db:
                 asst_msg = await create_message(
-                    save_db, conv_id, "assistant", full_content, parent_id=user_msg_id
+                    save_db, conv_id, "assistant", full_content,
+                    parent_id=user_msg_id, token_count=completion_tokens,
+                    context_tokens=prompt_tokens,
                 )
                 await touch_conversation(save_db, conv_id, current_node_id=asst_msg.id)
 
@@ -142,7 +158,7 @@ async def chat_stream(
 
                 await save_db.commit()
 
-            yield f"data: {json.dumps({'type': 'done', 'message_id': str(asst_msg.id), 'title': new_title})}\n\n"
+            yield f"data: {json.dumps({'type': 'done', 'message_id': str(asst_msg.id), 'title': new_title, 'prompt_tokens': prompt_tokens, 'completion_tokens': completion_tokens, 'context_truncated': context_truncated})}\n\n"
 
         except Exception as e:
             yield f"data: {json.dumps({'type': 'error', 'detail': str(e)})}\n\n"

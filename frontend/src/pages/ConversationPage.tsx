@@ -12,6 +12,18 @@ import { conversationsApi } from '../api/conversations'
 import ConversationTree from '../components/ConversationTree'
 import type { LocalMessage } from '../types/message'
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function extractTokenStats(messages: LocalMessage[]) {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i]
+    if (m.role === 'assistant' && m.context_tokens != null) {
+      return { prompt: m.context_tokens, completion: 0, truncated: false }
+    }
+  }
+  return null
+}
+
 // ── Main page ──────────────────────────────────────────────────────────────────
 
 export default function ConversationPage() {
@@ -25,6 +37,11 @@ export default function ConversationPage() {
   const [isStreaming, setIsStreaming] = useState(false)
   const [showTree, setShowTree] = useState(true)
   const [treeWidth, setTreeWidth] = useState(280)
+  const [tokenStats, setTokenStats] = useState<{
+    prompt: number
+    completion: number
+    truncated: boolean
+  } | null>(null)
 
   const bottomRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -48,11 +65,15 @@ export default function ConversationPage() {
     if (!id || !token) return
     setActiveNodeId(null)
     setMessages([])
+    setTokenStats(null)
     fetch(`/api/v1/conversations/${id}/messages`, {
       headers: { Authorization: `Bearer ${token}` },
     })
       .then(r => r.json())
-      .then((data: LocalMessage[]) => setMessages(data))
+      .then((data: LocalMessage[]) => {
+        setMessages(data)
+        setTokenStats(extractTokenStats(data))
+      })
       .catch(() => {})
   }, [id, token]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -78,7 +99,10 @@ export default function ConversationPage() {
       headers: { Authorization: `Bearer ${token}` },
     })
       .then(r => r.json())
-      .then((data: LocalMessage[]) => setMessages(data))
+      .then((data: LocalMessage[]) => {
+        setMessages(data)
+        setTokenStats(extractTokenStats(data))
+      })
       .catch(() => {})
   }, [id, token, setActiveNodeId])
 
@@ -153,6 +177,13 @@ export default function ConversationPage() {
               ))
               setActiveNodeId(ev.message_id)
               queryClient.invalidateQueries({ queryKey: ['tree', id] })
+              if (ev.prompt_tokens != null) {
+                setTokenStats({
+                  prompt: ev.prompt_tokens,
+                  completion: ev.completion_tokens ?? 0,
+                  truncated: !!ev.context_truncated,
+                })
+              }
               // Update conversation title if auto-generated
               if (ev.title) {
                 queryClient.setQueryData(['conversations', id], (old: any) =>
@@ -207,6 +238,18 @@ export default function ConversationPage() {
 
         <div className="flex-shrink-0 border-t border-white/[0.06] bg-[#0a0a0a] px-4 py-4">
           <div className="max-w-3xl mx-auto">
+            {tokenStats && (
+              <div className={`flex items-center gap-1.5 mb-2 text-[10px] ${
+                tokenStats.truncated ? 'text-amber-500/70' : 'text-[#2e2e2e]'
+              }`}>
+                {tokenStats.truncated && <span>⚠</span>}
+                <span>
+                  {tokenStats.truncated
+                    ? `上下文已截断 · 本次 ${tokenStats.prompt.toLocaleString()} tokens`
+                    : `上下文 ${tokenStats.prompt.toLocaleString()} tokens`}
+                </span>
+              </div>
+            )}
             <div className="flex items-end gap-3 bg-[#111111] border border-white/[0.08] rounded-2xl px-4 py-3
                             focus-within:border-white/[0.16] transition-colors">
               <textarea

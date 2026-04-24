@@ -90,7 +90,9 @@ academic_research/
 | **S1** | 用户认证 | 用户模型、JWT 登录注册、前端登录页、路由守卫 |
 | **S2** | 会话管理 | 会话（Conversation）模型、创建/列表/删除接口、前端会话列表 |
 | **S3** | 基础对话 | 消息模型、单轮 LLM 调用、流式输出（SSE/WebSocket）、对话界面 |
+| **S3.5** | 树状对话 | 树形消息结构、分支创建/切换、树状 UI 可视化 |
 | **S4** | 多轮记忆 | 历史上下文拼接、Token 管理、会话持久化 |
+| **S4.5** | 文档上传 | PDF 上传与解析、文件内容注入对话上下文、前端上传 UI |
 | **S5** | Tool 系统 | Tool 注册机制、Function Calling 集成、工具执行沙箱 |
 | **S6** | Agent 核心 | ReAct/计划-执行 Agent 循环、中间步骤展示 |
 | **S7** | 多 Agent 协作 | Agent 角色定义、Orchestrator、任务分发 |
@@ -131,7 +133,9 @@ academic_research/
 - [x] S1: 用户认证（User 模型、JWT、bcrypt、register/login/me、前端登录注册页、路由守卫）
 - [x] S2: 会话管理（Conversation 模型软删除、CRUD 接口、侧边栏、嵌套路由 Layout+Outlet）
 - [x] S3: 基础对话（Message 模型、SSE 流式输出、Anthropic/OpenAI 双客户端、聊天 UI）
-- [ ] S4: 多轮记忆
+- [x] S3.5: 树状对话（树形 Message 数据结构、分支创建与切换、树状 UI 可视化、浮动/固定窗口）
+- [x] S4: 多轮记忆（Token 计数估算、历史预算截断、token_count 存 DB、SSE done 事件返回统计、前端 token 状态栏）
+- [ ] S4.5: 文档上传（PDF 解析、内容注入上下文）
 
 ---
 

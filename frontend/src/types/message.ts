@@ -6,6 +6,7 @@ export type Message = {
   created_at: string
   parent_id: string | null
   summary: string | null
+  context_tokens: number | null
 }
 
 export type LocalMessage = Message & { streaming?: boolean }

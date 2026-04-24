@@ -24,6 +24,7 @@ class MessageResponse(BaseModel):
     created_at: datetime
     parent_id: uuid.UUID | None = None
     summary: str | None = None
+    context_tokens: int | None = None
 
     model_config = {"from_attributes": True}
 

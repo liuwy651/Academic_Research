@@ -34,5 +34,9 @@ class Settings(BaseSettings):
     DASHSCOPE_API_KEY: str = ""
     DASHSCOPE_BASE_URL: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 
+    # Token management (S4)
+    LLM_CONTEXT_WINDOW: int = 8192   # model's total context window in tokens
+    LLM_HISTORY_BUDGET: int = 4000   # max tokens reserved for conversation history
+
 
 settings = Settings()
