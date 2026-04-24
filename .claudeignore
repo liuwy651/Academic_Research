@@ -1,13 +1,13 @@
-# 忽略所有 Lock 文件，防止浪费海量 Token
+
 frontend/package-lock.json
 backend/package-lock.json
 backend/uv.lock
 
-# 忽略构建产物和第三方依赖（作为双重保险，即使 gitignore 已有）
+
 frontend/node_modules/
 frontend/dist/
 backend/.venv/
 
-# 忽略纯静态资源（AI 无法直接阅读二进制图片或大体积 SVG）
+
 frontend/public/*.svg
 frontend/src/assets/*
