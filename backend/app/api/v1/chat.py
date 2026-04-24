@@ -99,9 +99,13 @@ async def chat_stream(
     else:
         user_content_for_llm = payload.content
 
-    # File tokens reduce the available history budget
-    file_tokens = estimate_tokens(files_text) if files_text else 0
-    effective_budget = max(0, settings.LLM_HISTORY_BUDGET - file_tokens)
+    # With files: budget against the full context window so file tokens don't
+    # get double-counted (trim_to_budget already deducts user_content tokens internally).
+    # Without files: use the conservative history budget.
+    if files_text:
+        effective_budget = max(0, settings.LLM_CONTEXT_WINDOW - settings.LLM_RESPONSE_RESERVE)
+    else:
+        effective_budget = settings.LLM_HISTORY_BUDGET
 
     # Apply token budget — trim oldest messages to fit within effective budget
     trimmed_history, context_truncated = trim_to_budget(
