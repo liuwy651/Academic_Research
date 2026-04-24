@@ -2,6 +2,10 @@ import { useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { ArrowUp, Bot, MessageSquare } from 'lucide-react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
+import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { useAuthStore } from '../store/authStore'
 import { conversationsApi } from '../api/conversations'
 import type { LocalMessage } from '../types/message'
@@ -220,6 +224,63 @@ function EmptyState() {
   )
 }
 
+// ── Markdown renderer config ───────────────────────────────────────────────────
+
+const mdComponents = {
+  pre({ children }: any) { return <>{children}</> },
+  code({ className, children, ...props }: any) {
+    const match = /language-(\w+)/.exec(className || '')
+    return match ? (
+      <SyntaxHighlighter
+        PreTag="div"
+        language={match[1]}
+        style={vscDarkPlus}
+        customStyle={{ background: '#0d0d0d', borderRadius: '8px', padding: '12px 14px', margin: '6px 0', fontSize: '12px', lineHeight: '1.6' }}
+      >
+        {String(children).replace(/\n$/, '')}
+      </SyntaxHighlighter>
+    ) : (
+      <code className="bg-[#1e1e1e] text-violet-300 px-1.5 py-0.5 rounded text-[0.85em] font-mono" {...props}>
+        {children}
+      </code>
+    )
+  },
+  p({ children }: any) { return <p className="mb-2 last:mb-0 leading-relaxed">{children}</p> },
+  h1({ children }: any) { return <h1 className="text-base font-semibold mb-2 mt-3 first:mt-0 text-[#e8e8e8]">{children}</h1> },
+  h2({ children }: any) { return <h2 className="text-sm font-semibold mb-2 mt-3 first:mt-0 text-[#e0e0e0]">{children}</h2> },
+  h3({ children }: any) { return <h3 className="text-sm font-medium mb-1 mt-2 first:mt-0">{children}</h3> },
+  ul({ children }: any) { return <ul className="list-disc pl-5 mb-2 space-y-0.5">{children}</ul> },
+  ol({ children }: any) { return <ol className="list-decimal pl-5 mb-2 space-y-0.5">{children}</ol> },
+  li({ children }: any) { return <li className="leading-relaxed">{children}</li> },
+  blockquote({ children }: any) {
+    return (
+      <blockquote className="border-l-2 border-violet-500/40 pl-3 my-2 text-[#8a8a8a] italic">
+        {children}
+      </blockquote>
+    )
+  },
+  a({ href, children }: any) {
+    return (
+      <a href={href} target="_blank" rel="noopener noreferrer"
+         className="text-violet-400 hover:text-violet-300 underline underline-offset-2 transition-colors">
+        {children}
+      </a>
+    )
+  },
+  table({ children }: any) {
+    return <div className="overflow-x-auto my-2"><table className="text-xs border-collapse w-full">{children}</table></div>
+  },
+  thead({ children }: any) { return <thead className="border-b border-white/[0.1]">{children}</thead> },
+  th({ children }: any) { return <th className="text-left px-3 py-1.5 font-medium text-[#a0a0a0]">{children}</th> },
+  tr({ children }: any) { return <tr className="border-b border-white/[0.04]">{children}</tr> },
+  td({ children }: any) { return <td className="px-3 py-1.5">{children}</td> },
+  hr() { return <hr className="border-white/[0.08] my-3" /> },
+  strong({ children }: any) { return <strong className="font-semibold text-[#e8e8e8]">{children}</strong> },
+  em({ children }: any) { return <em className="italic text-[#c8c8c8]">{children}</em> },
+}
+
+// ── Message bubble ─────────────────────────────────────────────────────────────
+
 function MessageBubble({ message }: { message: LocalMessage }) {
   const isUser = message.role === 'user'
   const streaming = !!message.streaming
@@ -245,12 +306,17 @@ function MessageBubble({ message }: { message: LocalMessage }) {
 
       {/* Bubble */}
       <div className="flex-1 min-w-0">
-        <div className="inline-block max-w-full bg-[#141414] border border-white/[0.06]
-                        rounded-2xl rounded-tl-sm px-4 py-3">
-          <p className="text-sm text-[#d4d4d4] whitespace-pre-wrap leading-relaxed">
-            {message.content || (streaming ? '' : '…')}
+        <div className="bg-[#141414] border border-white/[0.06] rounded-2xl rounded-tl-sm px-4 py-3">
+          <div className="text-sm text-[#d4d4d4] leading-relaxed">
+            {message.content ? (
+              <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
+                {message.content}
+              </ReactMarkdown>
+            ) : (
+              !streaming && <span className="text-[#4a4a4a]">…</span>
+            )}
             {streaming && <span className="cursor-blink" />}
-          </p>
+          </div>
         </div>
       </div>
     </div>
