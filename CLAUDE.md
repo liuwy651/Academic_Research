@@ -129,7 +129,8 @@ academic_research/
 - [x] 目录结构初始化（`backend/`、`frontend/`）
 - [x] S0: 基础骨架（docker-compose、FastAPI+健康检查、React+Vite+TS、Alembic）
 - [x] S1: 用户认证（User 模型、JWT、bcrypt、register/login/me、前端登录注册页、路由守卫）
-- [ ] S2: 会话管理
+- [x] S2: 会话管理（Conversation 模型软删除、CRUD 接口、侧边栏、嵌套路由 Layout+Outlet）
+- [ ] S3: 基础对话
 
 ---
 
