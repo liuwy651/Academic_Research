@@ -21,7 +21,8 @@ from app.services.chat import (
     touch_conversation,
 )
 from app.services.conversation import get_conversation, set_title_by_id
-from app.services.file import attach_files_to_message, get_files_text
+from app.schemas.file import FileAttachmentInfo
+from app.services.file import attach_files_to_message, get_files_by_message_ids, get_files_text
 
 router = APIRouter(prefix="/conversations", tags=["chat"])
 
@@ -46,7 +47,17 @@ async def list_messages(
         return []
 
     rows = await get_messages_path(db, conv_id, resolved)
-    return [MessageResponse.model_validate(dict(r)) for r in rows]
+
+    msg_ids = [uuid.UUID(str(r["id"])) for r in rows]
+    files_map = await get_files_by_message_ids(db, msg_ids)
+
+    responses = []
+    for r in rows:
+        data = dict(r)
+        mid = uuid.UUID(str(data["id"]))
+        data["files"] = [FileAttachmentInfo.model_validate(f) for f in files_map.get(mid, [])]
+        responses.append(MessageResponse.model_validate(data))
+    return responses
 
 
 @router.get("/{conv_id}/tree", response_model=list[TreeNodeResponse])

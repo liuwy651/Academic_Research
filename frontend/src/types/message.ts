@@ -1,3 +1,10 @@
+export type FileAttachmentInfo = {
+  id: string
+  original_filename: string
+  file_type: string
+  token_estimate: number | null
+}
+
 export type Message = {
   id: string
   conversation_id: string
@@ -7,6 +14,7 @@ export type Message = {
   parent_id: string | null
   summary: string | null
   context_tokens: number | null
+  files: FileAttachmentInfo[]
 }
 
 export type LocalMessage = Message & { streaming?: boolean }

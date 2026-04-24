@@ -4,6 +4,16 @@ from datetime import datetime
 from pydantic import BaseModel
 
 
+class FileAttachmentInfo(BaseModel):
+    """Minimal file info embedded inside MessageResponse."""
+    id: uuid.UUID
+    original_filename: str
+    file_type: str
+    token_estimate: int | None = None
+
+    model_config = {"from_attributes": True}
+
+
 class FileResponse(BaseModel):
     id: uuid.UUID
     conversation_id: uuid.UUID

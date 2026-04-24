@@ -4,6 +4,9 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowUp, Bot, FileText, GitBranch, Loader2, MessageSquare, Paperclip, X } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import remarkMath from 'remark-math'
+import rehypeKatex from 'rehype-katex'
+import 'katex/dist/katex.min.css'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { useAuthStore } from '../store/authStore'
@@ -11,7 +14,7 @@ import { useConversationStore } from '../store/conversationStore'
 import { conversationsApi } from '../api/conversations'
 import { filesApi } from '../api/files'
 import ConversationTree from '../components/ConversationTree'
-import type { LocalMessage } from '../types/message'
+import type { FileAttachmentInfo, LocalMessage } from '../types/message'
 import type { PendingFile } from '../types/file'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -147,6 +150,15 @@ export default function ConversationPage() {
     setPendingFiles([])
     setIsStreaming(true)
 
+    const attachedFiles: FileAttachmentInfo[] = pendingFiles
+      .filter(p => p.status === 'done' && p.fileResponse)
+      .map(p => ({
+        id: p.fileResponse!.id,
+        original_filename: p.fileResponse!.original_filename,
+        file_type: p.fileResponse!.file_type,
+        token_estimate: p.fileResponse!.token_estimate ?? null,
+      }))
+
     const userMsg: LocalMessage = {
       id: `tmp-${Date.now()}`,
       conversation_id: id,
@@ -155,6 +167,8 @@ export default function ConversationPage() {
       created_at: new Date().toISOString(),
       parent_id: null,
       summary: null,
+      context_tokens: null,
+      files: attachedFiles,
     }
     setMessages(prev => [...prev, userMsg])
 
@@ -520,9 +534,31 @@ function MessageBubble({ message }: { message: LocalMessage }) {
   if (isUser) {
     return (
       <div className="flex justify-end">
-        <div className="max-w-[72%] bg-violet-600 text-white text-sm px-4 py-3
-                        rounded-2xl rounded-tr-sm leading-relaxed">
-          <p className="whitespace-pre-wrap">{message.content}</p>
+        <div className="max-w-[72%] flex flex-col items-end gap-1.5">
+          {message.files && message.files.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 justify-end">
+              {message.files.map(f => (
+                <div
+                  key={f.id}
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg
+                             bg-violet-800/60 border border-violet-500/30
+                             text-[11px] text-violet-200"
+                >
+                  <FileText className="w-3 h-3 flex-shrink-0 opacity-80" />
+                  <span className="max-w-[160px] truncate">{f.original_filename}</span>
+                  {f.token_estimate != null && (
+                    <span className="opacity-50 tabular-nums">
+                      ~{f.token_estimate.toLocaleString()}t
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="bg-violet-600 text-white text-sm px-4 py-3
+                          rounded-2xl rounded-tr-sm leading-relaxed">
+            <p className="whitespace-pre-wrap">{message.content}</p>
+          </div>
         </div>
       </div>
     )
@@ -539,7 +575,11 @@ function MessageBubble({ message }: { message: LocalMessage }) {
         <div className="bg-[#141414] border border-white/[0.06] rounded-2xl rounded-tl-sm px-4 py-3">
           <div className="text-sm text-[#d4d4d4] leading-relaxed">
             {message.content ? (
-              <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm, remarkMath]}
+                rehypePlugins={[rehypeKatex]}
+                components={mdComponents}
+              >
                 {message.content}
               </ReactMarkdown>
             ) : (

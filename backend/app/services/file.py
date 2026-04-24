@@ -158,6 +158,21 @@ async def attach_files_to_message(
         db_file.message_id = message_id
 
 
+async def get_files_by_message_ids(
+    db: AsyncSession, message_ids: list[uuid.UUID]
+) -> dict[uuid.UUID, list[File]]:
+    """Batch-fetch files keyed by message_id."""
+    if not message_ids:
+        return {}
+    result = await db.execute(
+        select(File).where(File.message_id.in_(message_ids))
+    )
+    grouped: dict[uuid.UUID, list[File]] = {}
+    for f in result.scalars().all():
+        grouped.setdefault(f.message_id, []).append(f)
+    return grouped
+
+
 async def get_files_text(
     db: AsyncSession, file_ids: list[uuid.UUID], conv_id: uuid.UUID
 ) -> str:

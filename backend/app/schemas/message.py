@@ -3,6 +3,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, field_validator
 
+from app.schemas.file import FileAttachmentInfo
+
 
 class ChatRequest(BaseModel):
     content: str
@@ -26,6 +28,7 @@ class MessageResponse(BaseModel):
     parent_id: uuid.UUID | None = None
     summary: str | None = None
     context_tokens: int | None = None
+    files: list[FileAttachmentInfo] = []
 
     model_config = {"from_attributes": True}
 

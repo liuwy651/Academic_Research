@@ -25,6 +25,11 @@ body {
 /* ── Selection ──────────────────────────────────────────────────────── */
 ::selection { background: rgba(139,92,246,0.28); }
 
+/* ── KaTeX dark-theme overrides ────────────────────────────────────── */
+.katex { color: #e2e2e2; font-size: 1em; }
+.katex-display { overflow-x: auto; overflow-y: hidden; padding: 6px 0; }
+.katex-display > .katex { background: #111; border-radius: 6px; padding: 10px 14px; }
+
 /* ── Streaming cursor ───────────────────────────────────────────────── */
 @keyframes blink {
   0%, 100% { opacity: 1; }
