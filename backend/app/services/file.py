@@ -10,7 +10,7 @@ from app.core.config import settings
 from app.llm.token import estimate_tokens
 from app.models.file import File
 
-
+# 聊天时上传的文件仅支持 pdf 和 markdown 格式。
 ALLOWED_CONTENT_TYPES = {
     "application/pdf": "pdf",
     "text/markdown": "markdown",
