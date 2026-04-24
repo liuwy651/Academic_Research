@@ -126,19 +126,6 @@ academic_research/
 
 ---
 
-## 当前状态
-
-- [x] 目录结构初始化（`backend/`、`frontend/`）
-- [x] S0: 基础骨架（docker-compose、FastAPI+健康检查、React+Vite+TS、Alembic）
-- [x] S1: 用户认证（User 模型、JWT、bcrypt、register/login/me、前端登录注册页、路由守卫）
-- [x] S2: 会话管理（Conversation 模型软删除、CRUD 接口、侧边栏、嵌套路由 Layout+Outlet）
-- [x] S3: 基础对话（Message 模型、SSE 流式输出、Anthropic/OpenAI 双客户端、聊天 UI）
-- [x] S3.5: 树状对话（树形 Message 数据结构、分支创建与切换、树状 UI 可视化、浮动/固定窗口）
-- [x] S4: 多轮记忆（Token 计数估算、历史预算截断、token_count 存 DB、SSE done 事件返回统计、前端 token 状态栏）
-- [ ] S4.5: 文档上传（PDF 解析、内容注入上下文）
-
----
-
 ## 关键约束
 
 - Docker 只跑**基础服务**（数据库、缓存），不跑应用代码

@@ -1,12 +1,16 @@
 import asyncio
 import json
+import logging
 import uuid
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.agents.tools.registry import registry
 from app.api.deps import get_current_user
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal, get_db
@@ -144,12 +148,62 @@ async def chat_stream(
     async def generate():
         full_content = ""
         try:
-            async for chunk in llm.stream_chat(messages_for_llm):
-                full_content += chunk
-                yield f"data: {json.dumps({'type': 'chunk', 'content': chunk})}\n\n"
+            # ── 第一次请求：带工具定义，实时推送文本，拦截 tool_calls ──────────
+            pending_tool_calls: list[dict] = []
 
+            logger.info("Starting first LLM request with tools for conv %s", conv_id)
+            async for event in llm.stream_chat_with_tools(
+                messages_for_llm, tools=registry.get_all_tool_schemas()
+            ):
+                if event["type"] == "text":
+                    full_content += event["content"]
+                    yield f"data: {json.dumps({'type': 'chunk', 'content': event['content']})}\n\n"
+                elif event["type"] == "tool_calls":
+                    pending_tool_calls = event["calls"]
+                    logger.info("Intercepted tool_calls: %s", pending_tool_calls)
+
+            # ── 如果模型决定调用工具：执行 → 二次请求 ────────────────────────
+            if pending_tool_calls:
+                logger.info("Tool calls triggered: %s", [tc["function"]["name"] for tc in pending_tool_calls])
+
+                # 组装带工具调用记录的 messages（OpenAI 标准格式）
+                # 不设置 content 键（而非 None），以兼容更多 LLM 后端
+                asst_tool_msg: dict = {
+                    "role": "assistant",
+                    "tool_calls": pending_tool_calls,
+                }
+                if full_content:
+                    asst_tool_msg["content"] = full_content
+
+                messages_augmented: list[dict] = list(messages_for_llm) + [asst_tool_msg]
+
+                for tc in pending_tool_calls:
+                    name = tc["function"]["name"]
+                    try:
+                        args = json.loads(tc["function"]["arguments"])
+                    except (json.JSONDecodeError, KeyError):
+                        args = {}
+
+                    # 通知前端正在调用哪个工具
+                    yield f"data: {json.dumps({'type': 'tool_start', 'name': name, 'args': args})}\n\n"
+
+                    # 同步函数用 to_thread 防止阻塞事件循环
+                    result: str = await asyncio.to_thread(registry.execute_tool, name, args)
+
+                    messages_augmented.append({
+                        "role": "tool",
+                        "tool_call_id": tc["id"],
+                        "content": result,
+                    })
+
+                # 二次请求：不带 tools，让模型基于搜索结果总结回答
+                full_content = ""
+                async for chunk in llm.stream_chat(messages_augmented):
+                    full_content += chunk
+                    yield f"data: {json.dumps({'type': 'chunk', 'content': chunk})}\n\n"
+
+            # ── 保存助手消息 & done 事件（与原有逻辑完全一致）───────────────
             new_title: str | None = None
-
             completion_tokens = estimate_tokens(full_content)
 
             async with AsyncSessionLocal() as save_db:
@@ -160,7 +214,6 @@ async def chat_stream(
                 )
                 await touch_conversation(save_db, conv_id, current_node_id=asst_msg.id)
 
-                # Generate LLM title for the first exchange
                 if is_first_message:
                     try:
                         snippet = full_content[:400]
@@ -179,20 +232,19 @@ async def chat_stream(
                             title_messages,
                             system="你是对话标题生成助手，只输出简洁标题，不超过15个字。",
                         )
-                        # Strip surrounding punctuation/quotes LLM might add
                         cleaned = raw.strip().strip('《》「」【】""\'\'""。，.').strip()
                         if cleaned:
                             new_title = cleaned[:20]
                             await set_title_by_id(save_db, conv_id, new_title)
                     except Exception:
-                        pass  # title generation is non-critical
+                        pass
 
                 await save_db.commit()
 
             yield f"data: {json.dumps({'type': 'done', 'message_id': str(asst_msg.id), 'title': new_title, 'prompt_tokens': prompt_tokens, 'completion_tokens': completion_tokens, 'context_truncated': context_truncated})}\n\n"
 
         except asyncio.CancelledError:
-            return  # client disconnected — clean exit, nothing to yield
+            return
         except Exception as e:
             yield f"data: {json.dumps({'type': 'error', 'detail': str(e)})}\n\n"
 

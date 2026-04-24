@@ -17,7 +17,15 @@ export type Message = {
   files: FileAttachmentInfo[]
 }
 
-export type LocalMessage = Message & { streaming?: boolean }
+export type ToolStatus = {
+  name: string
+  args: Record<string, unknown>
+}
+
+export type LocalMessage = Message & {
+  streaming?: boolean
+  toolStatus?: ToolStatus
+}
 
 export type TreeNode = {
   id: string

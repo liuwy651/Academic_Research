@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowUp, Bot, FileText, GitBranch, Loader2, MessageSquare, Paperclip, Square, X } from 'lucide-react'
+import { ArrowUp, Bot, FileText, GitBranch, Globe, Loader2, MessageSquare, Paperclip, Square, X } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
@@ -14,7 +14,7 @@ import { useConversationStore } from '../store/conversationStore'
 import { conversationsApi } from '../api/conversations'
 import { filesApi } from '../api/files'
 import ConversationTree from '../components/ConversationTree'
-import type { FileAttachmentInfo, LocalMessage } from '../types/message'
+import type { FileAttachmentInfo, LocalMessage, ToolStatus } from '../types/message'
 import type { PendingFile } from '../types/file'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -217,9 +217,16 @@ export default function ConversationPage() {
           if (!jsonStr) continue
           try {
             const ev = JSON.parse(jsonStr)
-            if (ev.type === 'chunk') {
+            if (ev.type === 'tool_start') {
+              const toolStatus: ToolStatus = { name: ev.name, args: ev.args ?? {} }
               setMessages(prev => prev.map(m =>
-                m.id === streamingId ? { ...m, content: m.content + ev.content } : m
+                m.id === streamingId ? { ...m, toolStatus } : m
+              ))
+            } else if (ev.type === 'chunk') {
+              setMessages(prev => prev.map(m =>
+                m.id === streamingId
+                  ? { ...m, content: m.content + ev.content, toolStatus: undefined }
+                  : m
               ))
             } else if (ev.type === 'done') {
               setMessages(prev => prev.map(m =>
@@ -593,6 +600,17 @@ function MessageBubble({ message }: { message: LocalMessage }) {
 
       <div className="flex-1 min-w-0">
         <div className="bg-[#141414] border border-white/[0.06] rounded-2xl rounded-tl-sm px-4 py-3">
+          {/* Tool call status badge */}
+          {message.toolStatus && (
+            <div className="flex items-center gap-2 mb-2 py-1.5 px-2.5 rounded-lg
+                            bg-violet-500/[0.08] border border-violet-500/20 w-fit">
+              <Globe className="w-3.5 h-3.5 text-violet-400 animate-pulse flex-shrink-0" />
+              <span className="text-[11px] text-violet-300/80">
+                正在搜索：{(message.toolStatus.args?.query as string) ?? message.toolStatus.name}
+              </span>
+            </div>
+          )}
+
           <div className="text-sm text-[#d4d4d4] leading-relaxed">
             {message.content ? (
               <ReactMarkdown
@@ -603,9 +621,9 @@ function MessageBubble({ message }: { message: LocalMessage }) {
                 {message.content}
               </ReactMarkdown>
             ) : (
-              !streaming && <span className="text-[#4a4a4a]">…</span>
+              !streaming && !message.toolStatus && <span className="text-[#4a4a4a]">…</span>
             )}
-            {streaming && <span className="cursor-blink" />}
+            {streaming && !message.toolStatus && <span className="cursor-blink" />}
           </div>
         </div>
       </div>

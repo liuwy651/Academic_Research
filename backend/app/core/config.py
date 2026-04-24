@@ -43,6 +43,8 @@ class Settings(BaseSettings):
     UPLOAD_DIR: str = "uploads"
     MAX_FILE_SIZE_MB: int = 50
     FILE_TOKEN_BUDGET: int = 20000
+    
+    BOCHA_API_KEY: str = "sk-6cb6d10d13804b8b8890d623316bc75e"  # 博查网络搜索的 API Key
 
 
 settings = Settings()

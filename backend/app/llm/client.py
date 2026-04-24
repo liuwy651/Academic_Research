@@ -24,6 +24,66 @@ class DashScopeClient:
             if content:
                 yield content
 
+    async def stream_chat_with_tools(
+        self,
+        messages: list[dict],
+        tools: list[dict],
+        system: str | None = None,
+    ) -> AsyncGenerator[dict, None]:
+        """流式对话，支持工具调用拦截。
+
+        每次 yield 一个 dict：
+          {"type": "text",       "content": str}        — 文本块，实时推送
+          {"type": "tool_calls", "calls":   list[dict]} — 流结束后，若模型要调用工具则 yield 一次
+        """
+        from openai import AsyncOpenAI
+
+        client = AsyncOpenAI(
+            api_key=settings.DASHSCOPE_API_KEY,
+            base_url=settings.DASHSCOPE_BASE_URL,
+        )
+        all_messages = _prepend_system(messages, system)
+        stream = await client.chat.completions.create(
+            model=settings.LLM_MODEL,
+            messages=all_messages,
+            stream=True,
+            tools=tools,
+            tool_choice="auto",
+        )
+
+        # index -> {id, type, function: {name, arguments}}
+        tool_calls_buffer: dict[int, dict] = {}
+
+        async for chunk in stream:
+            if not chunk.choices:
+                continue
+            choice = chunk.choices[0]
+            delta = choice.delta
+
+            if delta.content:
+                yield {"type": "text", "content": delta.content}
+
+            if delta.tool_calls:
+                for tc_delta in delta.tool_calls:
+                    idx = tc_delta.index
+                    if idx not in tool_calls_buffer:
+                        tool_calls_buffer[idx] = {
+                            "id": "",
+                            "type": "function",
+                            "function": {"name": "", "arguments": ""},
+                        }
+                    if tc_delta.id:
+                        tool_calls_buffer[idx]["id"] = tc_delta.id
+                    if tc_delta.function:
+                        if tc_delta.function.name:
+                            tool_calls_buffer[idx]["function"]["name"] += tc_delta.function.name
+                        if tc_delta.function.arguments:
+                            tool_calls_buffer[idx]["function"]["arguments"] += tc_delta.function.arguments
+
+        if tool_calls_buffer:
+            calls = [tool_calls_buffer[i] for i in sorted(tool_calls_buffer.keys())]
+            yield {"type": "tool_calls", "calls": calls}
+
     async def chat(
         self, messages: list[dict], system: str | None = None, max_tokens: int = 60
     ) -> str:
