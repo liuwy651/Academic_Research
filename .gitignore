@@ -1,41 +1,46 @@
-# Environment
+# =========================
+# 全局与机密文件 (Global & Secrets)
+# =========================
 .env
-*.env.local
+.env.*
+!.env.example
+.DS_Store
+Thumbs.db
 
-# Python
+# =========================
+# 编辑器与IDE (Editors & IDEs)
+# =========================
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+!.vscode/launch.json
+.idea/
+
+# =========================
+# 后端 (Backend - Python/uv/FastAPI)
+# =========================
+# 虚拟环境
+backend/.venv/
+# Python 编译缓存
 __pycache__/
 *.py[cod]
-*.pyo
-.venv/
-venv/
-.Python
-dist/
-build/
-*.egg-info/
-.eggs/
-.pytest_cache/
-.ruff_cache/
-.mypy_cache/
-htmlcov/
-.coverage
+*$py.class
+# 如果有本地 SQLite 数据库文件
+*.db
+*.sqlite3
 
-# uv
-.uv/
-
-# Node
-node_modules/
+# =========================
+# 前端 (Frontend - React/Vite)
+# =========================
+# 依赖包
+frontend/node_modules/
+# 构建产物
 frontend/dist/
-frontend/.vite/
-
-# IDE
-.idea/
-.vscode/
-*.swp
-*.swo
-.DS_Store
-
-# Alembic
-# (versions/ 目录需要提交，不忽略)
-
-# Docker
-.docker/
+frontend/dist-ssr/
+# 缓存文件
+frontend/*.tsbuildinfo
+frontend/.eslintcache
+# npm/yarn 日志
+frontend/npm-debug.log*
+frontend/yarn-debug.log*
+frontend/yarn-error.log*
