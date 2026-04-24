@@ -18,7 +18,7 @@ from app.services.chat import (
     resolve_node_id,
     touch_conversation,
 )
-from app.services.conversation import get_conversation
+from app.services.conversation import get_conversation, set_title_by_id
 
 router = APIRouter(prefix="/conversations", tags=["chat"])
 
@@ -91,7 +91,8 @@ async def chat_stream(
 
     messages_for_llm.append({"role": "user", "content": payload.content})
 
-    # Save user message
+    # Save user message; track whether this is the first exchange for title generation
+    is_first_message = conv.title == "New Conversation" and conv.current_node_id is None
     user_msg = await create_message(db, conv_id, "user", payload.content, parent_id=user_parent_id)
     user_msg_id = user_msg.id
 
@@ -104,14 +105,44 @@ async def chat_stream(
                 full_content += chunk
                 yield f"data: {json.dumps({'type': 'chunk', 'content': chunk})}\n\n"
 
+            new_title: str | None = None
+
             async with AsyncSessionLocal() as save_db:
                 asst_msg = await create_message(
                     save_db, conv_id, "assistant", full_content, parent_id=user_msg_id
                 )
                 await touch_conversation(save_db, conv_id, current_node_id=asst_msg.id)
+
+                # Generate LLM title for the first exchange
+                if is_first_message:
+                    try:
+                        snippet = full_content[:400]
+                        title_messages = [
+                            {
+                                "role": "user",
+                                "content": (
+                                    f"请根据以下对话内容，生成一个5到15个字的简洁标题，"
+                                    f"只输出标题文字，不要任何解释、标点符号或引号。\n\n"
+                                    f"用户：{payload.content}\n"
+                                    f"助手：{snippet}"
+                                ),
+                            }
+                        ]
+                        raw = await llm.chat(
+                            title_messages,
+                            system="你是对话标题生成助手，只输出简洁标题，不超过15个字。",
+                        )
+                        # Strip surrounding punctuation/quotes LLM might add
+                        cleaned = raw.strip().strip('《》「」【】""\'\'""。，.').strip()
+                        if cleaned:
+                            new_title = cleaned[:20]
+                            await set_title_by_id(save_db, conv_id, new_title)
+                    except Exception:
+                        pass  # title generation is non-critical
+
                 await save_db.commit()
 
-            yield f"data: {json.dumps({'type': 'done', 'message_id': str(asst_msg.id)})}\n\n"
+            yield f"data: {json.dumps({'type': 'done', 'message_id': str(asst_msg.id), 'title': new_title})}\n\n"
 
         except Exception as e:
             yield f"data: {json.dumps({'type': 'error', 'detail': str(e)})}\n\n"

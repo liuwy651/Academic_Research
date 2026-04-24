@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { GitBranch } from 'lucide-react'
 import { conversationsApi } from '../api/conversations'
@@ -122,6 +123,12 @@ type Props = {
 }
 
 export default function ConversationTree({ convId, activeNodeId, onSelectNode }: Props) {
+  const [pan, setPan] = useState({ x: 20, y: 20 })
+  const [dragging, setDragging] = useState(false)
+
+  // Reset pan when switching conversations
+  useEffect(() => { setPan({ x: 20, y: 20 }) }, [convId])
+
   const { data: flatNodes = [], isLoading } = useQuery({
     queryKey: ['tree', convId],
     queryFn: () => conversationsApi.getTree(convId),
@@ -129,7 +136,23 @@ export default function ConversationTree({ convId, activeNodeId, onSelectNode }:
   })
 
   const roots = buildExchangeTree(flatNodes)
-  const { pos, depthMap, svgW, svgH, flat } = layout(roots)
+  const { pos, depthMap, flat } = layout(roots)
+
+  const onSvgMouseDown = (e: React.MouseEvent<SVGSVGElement>) => {
+    if (e.button !== 0) return
+    e.preventDefault()
+    const sx = e.clientX, sy = e.clientY, ox = pan.x, oy = pan.y
+    setDragging(true)
+    const onMove = (ev: MouseEvent) =>
+      setPan({ x: ox + ev.clientX - sx, y: oy + ev.clientY - sy })
+    const onUp = () => {
+      setDragging(false)
+      document.removeEventListener('mousemove', onMove)
+      document.removeEventListener('mouseup', onUp)
+    }
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', onUp)
+  }
 
   return (
     <div className="flex flex-col h-full">
@@ -142,21 +165,22 @@ export default function ConversationTree({ convId, activeNodeId, onSelectNode }:
         )}
       </div>
 
-      {/* SVG canvas — scrollable */}
-      <div className="flex-1 overflow-auto">
+      {/* SVG canvas — pan by dragging empty area */}
+      <div className="flex-1 overflow-hidden relative">
         {isLoading ? (
           <div className="flex items-center justify-center h-full">
             <div className="w-5 h-5 rounded-full border border-white/10 border-t-violet-500 animate-spin" />
           </div>
         ) : flat.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full gap-2">
-            <GitBranch className="w-8 h-8 text-white/8" />
+            <GitBranch className="w-8 h-8 text-white/[0.08]" />
             <p className="text-xs text-white/20">暂无对话</p>
           </div>
         ) : (
           <svg
-            width={svgW} height={svgH}
-            style={{ display: 'block', minWidth: '100%', minHeight: '100%' }}
+            width="100%" height="100%"
+            onMouseDown={onSvgMouseDown}
+            style={{ cursor: dragging ? 'grabbing' : 'grab', display: 'block', userSelect: 'none' }}
           >
             <defs>
               <marker id="arr" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
@@ -164,57 +188,65 @@ export default function ConversationTree({ convId, activeNodeId, onSelectNode }:
               </marker>
             </defs>
 
-            {/* Edges */}
-            {flat.map(ex => {
-              const pp = pos.get(ex.userId)
-              if (!pp) return null
-              return ex.children.map(child => {
-                const cp = pos.get(child.userId)
-                if (!cp) return null
-                const y1 = pp.y + NH, y2 = cp.y, my = (y1 + y2) / 2
-                return (
-                  <path
-                    key={`${ex.userId}-${child.userId}`}
-                    d={`M ${pp.cx} ${y1} C ${pp.cx} ${my} ${cp.cx} ${my} ${cp.cx} ${y2}`}
-                    fill="none" stroke="#3a3a3a" strokeWidth={1.5}
-                    markerEnd="url(#arr)"
-                  />
-                )
-              })
-            })}
+            {/* All content shifts with pan */}
+            <g transform={`translate(${pan.x}, ${pan.y})`}>
+              {/* Edges */}
+              {flat.map(ex => {
+                const pp = pos.get(ex.userId)
+                if (!pp) return null
+                return ex.children.map(child => {
+                  const cp = pos.get(child.userId)
+                  if (!cp) return null
+                  const y1 = pp.y + NH, y2 = cp.y, my = (y1 + y2) / 2
+                  return (
+                    <path
+                      key={`${ex.userId}-${child.userId}`}
+                      d={`M ${pp.cx} ${y1} C ${pp.cx} ${my} ${cp.cx} ${my} ${cp.cx} ${y2}`}
+                      fill="none" stroke="#3a3a3a" strokeWidth={1.5}
+                      markerEnd="url(#arr)"
+                    />
+                  )
+                })
+              })}
 
-            {/* Nodes */}
-            {flat.map(ex => {
-              const p = pos.get(ex.userId)
-              if (!p) return null
-              const d = depthMap.get(ex.userId) ?? 0
-              const isActive = activeNodeId === ex.assistantId || activeNodeId === ex.userId
-              const { fill, stroke, text } = nodeStyle(d, isActive)
-              const label = (ex.summary?.trim() || '…').slice(0, 9)
-              return (
-                <g key={ex.userId} onClick={() => onSelectNode(ex.assistantId ?? ex.userId)} style={{ cursor: 'pointer' }}>
-                  {isActive && (
-                    <rect x={p.x - 3} y={p.y - 3} width={NW + 6} height={NH + 6} rx={9}
-                      fill="none" stroke="#7c3aed" strokeWidth={1} opacity={0.4} />
-                  )}
-                  <rect x={p.x} y={p.y} width={NW} height={NH} rx={6}
-                    fill={fill} stroke={stroke} strokeWidth={1.5} />
-                  <text
-                    x={p.cx} y={p.y + NH / 2}
-                    textAnchor="middle" dominantBaseline="middle"
-                    fill={text} fontSize={10.5}
-                    fontFamily="-apple-system, system-ui, sans-serif"
-                    fontWeight={isActive ? '600' : '400'}
-                    style={{ pointerEvents: 'none', userSelect: 'none' }}
+              {/* Nodes */}
+              {flat.map(ex => {
+                const p = pos.get(ex.userId)
+                if (!p) return null
+                const d = depthMap.get(ex.userId) ?? 0
+                const isActive = activeNodeId === ex.assistantId || activeNodeId === ex.userId
+                const { fill, stroke, text } = nodeStyle(d, isActive)
+                const label = (ex.summary?.trim() || '…').slice(0, 9)
+                return (
+                  <g
+                    key={ex.userId}
+                    onMouseDown={e => e.stopPropagation()}
+                    onClick={() => onSelectNode(ex.assistantId ?? ex.userId)}
+                    style={{ cursor: 'pointer' }}
                   >
-                    {label}
-                  </text>
-                  {!ex.assistantId && (
-                    <circle cx={p.x + NW - 7} cy={p.y + 7} r={3} fill="#f59e0b" opacity={0.85} />
-                  )}
-                </g>
-              )
-            })}
+                    {isActive && (
+                      <rect x={p.x - 3} y={p.y - 3} width={NW + 6} height={NH + 6} rx={9}
+                        fill="none" stroke="#7c3aed" strokeWidth={1} opacity={0.4} />
+                    )}
+                    <rect x={p.x} y={p.y} width={NW} height={NH} rx={6}
+                      fill={fill} stroke={stroke} strokeWidth={1.5} />
+                    <text
+                      x={p.cx} y={p.y + NH / 2}
+                      textAnchor="middle" dominantBaseline="middle"
+                      fill={text} fontSize={10.5}
+                      fontFamily="-apple-system, system-ui, sans-serif"
+                      fontWeight={isActive ? '600' : '400'}
+                      style={{ pointerEvents: 'none', userSelect: 'none' }}
+                    >
+                      {label}
+                    </text>
+                    {!ex.assistantId && (
+                      <circle cx={p.x + NW - 7} cy={p.y + 7} r={3} fill="#f59e0b" opacity={0.85} />
+                    )}
+                  </g>
+                )
+              })}
+            </g>
           </svg>
         )}
       </div>

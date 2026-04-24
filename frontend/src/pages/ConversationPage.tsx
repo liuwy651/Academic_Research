@@ -151,9 +151,15 @@ export default function ConversationPage() {
               setMessages(prev => prev.map(m =>
                 m.id === streamingId ? { ...m, id: ev.message_id, streaming: false } : m
               ))
-              // Track the new leaf node and refresh the tree
               setActiveNodeId(ev.message_id)
               queryClient.invalidateQueries({ queryKey: ['tree', id] })
+              // Update conversation title if auto-generated
+              if (ev.title) {
+                queryClient.setQueryData(['conversations', id], (old: any) =>
+                  old ? { ...old, title: ev.title } : old
+                )
+                queryClient.invalidateQueries({ queryKey: ['conversations'] })
+              }
             } else if (ev.type === 'error') {
               setMessages(prev => prev.map(m =>
                 m.id === streamingId ? { ...m, content: `⚠ ${ev.detail}`, streaming: false } : m
