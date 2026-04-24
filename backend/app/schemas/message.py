@@ -6,6 +6,7 @@ from pydantic import BaseModel, field_validator
 
 class ChatRequest(BaseModel):
     content: str
+    parent_id: uuid.UUID | None = None
 
     @field_validator("content")
     @classmethod
@@ -21,5 +22,16 @@ class MessageResponse(BaseModel):
     role: str
     content: str
     created_at: datetime
+    parent_id: uuid.UUID | None = None
+    summary: str | None = None
+
+    model_config = {"from_attributes": True}
+
+
+class TreeNodeResponse(BaseModel):
+    id: uuid.UUID
+    parent_id: uuid.UUID | None = None
+    role: str
+    summary: str | None = None
 
     model_config = {"from_attributes": True}

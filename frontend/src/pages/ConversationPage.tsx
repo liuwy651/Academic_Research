@@ -1,13 +1,15 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
-import { ArrowUp, Bot, MessageSquare } from 'lucide-react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { ArrowUp, Bot, GitBranch, MessageSquare } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { useAuthStore } from '../store/authStore'
+import { useConversationStore } from '../store/conversationStore'
 import { conversationsApi } from '../api/conversations'
+import ConversationTree from '../components/ConversationTree'
 import type { LocalMessage } from '../types/message'
 
 // ── Main page ──────────────────────────────────────────────────────────────────
@@ -15,25 +17,29 @@ import type { LocalMessage } from '../types/message'
 export default function ConversationPage() {
   const { id } = useParams<{ id: string }>()
   const token = useAuthStore(s => s.token)
+  const queryClient = useQueryClient()
+  const { activeNodeId, setActiveNodeId } = useConversationStore()
 
   const [messages, setMessages] = useState<LocalMessage[]>([])
   const [input, setInput] = useState('')
   const [isStreaming, setIsStreaming] = useState(false)
+  const [showTree, setShowTree] = useState(true)
 
   const bottomRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
-  // Load messages when conversation changes
+  // Load messages when conversation changes (clears active node)
   useEffect(() => {
-    if (!id) return
+    if (!id || !token) return
+    setActiveNodeId(null)
     setMessages([])
     fetch(`/api/v1/conversations/${id}/messages`, {
       headers: { Authorization: `Bearer ${token}` },
     })
       .then(r => r.json())
       .then((data: LocalMessage[]) => setMessages(data))
-      .catch(() => {/* ignore */})
-  }, [id, token])
+      .catch(() => {})
+  }, [id, token]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-scroll on new messages
   useEffect(() => {
@@ -48,6 +54,19 @@ export default function ConversationPage() {
     el.style.height = `${Math.min(el.scrollHeight, 160)}px`
   }, [input])
 
+  // Called when user clicks a tree node — reload the linear path to that node
+  const handleNodeClick = useCallback((nodeId: string) => {
+    if (!id || !token) return
+    setActiveNodeId(nodeId)
+    setMessages([])
+    fetch(`/api/v1/conversations/${id}/messages?node_id=${nodeId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(r => r.json())
+      .then((data: LocalMessage[]) => setMessages(data))
+      .catch(() => {})
+  }, [id, token, setActiveNodeId])
+
   const sendMessage = async () => {
     const content = input.trim()
     if (!content || isStreaming || !id) return
@@ -61,6 +80,8 @@ export default function ConversationPage() {
       role: 'user',
       content,
       created_at: new Date().toISOString(),
+      parent_id: null,
+      summary: null,
     }
     setMessages(prev => [...prev, userMsg])
 
@@ -72,13 +93,15 @@ export default function ConversationPage() {
       content: '',
       created_at: new Date().toISOString(),
       streaming: true,
+      parent_id: null,
+      summary: null,
     }])
 
     try {
       const response = await fetch(`/api/v1/conversations/${id}/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ content }),
+        body: JSON.stringify({ content, parent_id: activeNodeId }),
       })
 
       if (!response.ok || !response.body) {
@@ -113,6 +136,9 @@ export default function ConversationPage() {
               setMessages(prev => prev.map(m =>
                 m.id === streamingId ? { ...m, id: ev.message_id, streaming: false } : m
               ))
+              // Track the new leaf node and refresh the tree
+              setActiveNodeId(ev.message_id)
+              queryClient.invalidateQueries({ queryKey: ['tree', id] })
             } else if (ev.type === 'error') {
               setMessages(prev => prev.map(m =>
                 m.id === streamingId ? { ...m, content: `⚠ ${ev.detail}`, streaming: false } : m
@@ -139,60 +165,86 @@ export default function ConversationPage() {
   }
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden bg-[#0a0a0a]">
-      {/* ── Header ── */}
-      <ConversationHeader conversationId={id!} />
+    <div className="flex h-full overflow-hidden">
+      {/* ── Main chat column ── */}
+      <div className="flex-1 flex flex-col overflow-hidden bg-[#0a0a0a] min-w-0">
+        {/* Header */}
+        <ConversationHeader
+          conversationId={id!}
+          showTree={showTree}
+          onToggleTree={() => setShowTree(v => !v)}
+        />
 
-      {/* ── Message list ── */}
-      <div className="flex-1 overflow-y-auto">
-        <div className="max-w-3xl mx-auto px-4 py-6 space-y-6">
-          {messages.length === 0 && !isStreaming && <EmptyState />}
-          {messages.map(msg => (
-            <MessageBubble key={msg.id} message={msg} />
-          ))}
-          <div ref={bottomRef} />
-        </div>
-      </div>
-
-      {/* ── Input area ── */}
-      <div className="flex-shrink-0 border-t border-white/[0.06] bg-[#0a0a0a] px-4 py-4">
-        <div className="max-w-3xl mx-auto">
-          <div className="flex items-end gap-3 bg-[#111111] border border-white/[0.08] rounded-2xl px-4 py-3
-                          focus-within:border-white/[0.16] transition-colors">
-            <textarea
-              ref={textareaRef}
-              value={input}
-              onChange={e => setInput(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="Message…"
-              disabled={isStreaming}
-              rows={1}
-              className="flex-1 bg-transparent text-sm text-[#f0f0f0] placeholder-[#3a3a3a]
-                         resize-none outline-none min-h-[22px] max-h-[160px] leading-[22px]
-                         disabled:opacity-50"
-            />
-            <button
-              onClick={sendMessage}
-              disabled={!input.trim() || isStreaming}
-              className="flex-shrink-0 w-8 h-8 bg-violet-600 hover:bg-violet-500
-                         disabled:opacity-25 disabled:cursor-not-allowed
-                         rounded-lg flex items-center justify-center transition-colors cursor-pointer"
-            >
-              <ArrowUp className="w-4 h-4 text-white" />
-            </button>
+        {/* Message list */}
+        <div className="flex-1 overflow-y-auto">
+          <div className="max-w-3xl mx-auto px-4 py-6 space-y-6">
+            {messages.length === 0 && !isStreaming && <EmptyState />}
+            {messages.map(msg => (
+              <MessageBubble key={msg.id} message={msg} />
+            ))}
+            <div ref={bottomRef} />
           </div>
-          <p className="text-center text-[10px] text-[#282828] mt-2">
-            Enter to send · Shift+Enter for new line
-          </p>
+        </div>
+
+        {/* Input area */}
+        <div className="flex-shrink-0 border-t border-white/[0.06] bg-[#0a0a0a] px-4 py-4">
+          <div className="max-w-3xl mx-auto">
+            <div className="flex items-end gap-3 bg-[#111111] border border-white/[0.08] rounded-2xl px-4 py-3
+                            focus-within:border-white/[0.16] transition-colors">
+              <textarea
+                ref={textareaRef}
+                value={input}
+                onChange={e => setInput(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder="Message…"
+                disabled={isStreaming}
+                rows={1}
+                className="flex-1 bg-transparent text-sm text-[#f0f0f0] placeholder-[#3a3a3a]
+                           resize-none outline-none min-h-[22px] max-h-[160px] leading-[22px]
+                           disabled:opacity-50"
+              />
+              <button
+                onClick={sendMessage}
+                disabled={!input.trim() || isStreaming}
+                className="flex-shrink-0 w-8 h-8 bg-violet-600 hover:bg-violet-500
+                           disabled:opacity-25 disabled:cursor-not-allowed
+                           rounded-lg flex items-center justify-center transition-colors cursor-pointer"
+              >
+                <ArrowUp className="w-4 h-4 text-white" />
+              </button>
+            </div>
+            <p className="text-center text-[10px] text-[#282828] mt-2">
+              Enter to send · Shift+Enter for new line
+            </p>
+          </div>
         </div>
       </div>
+
+      {/* ── Tree panel ── */}
+      {showTree && id && (
+        <div className="w-56 flex-shrink-0 border-l border-white/[0.06] bg-[#0e0e0e] overflow-hidden">
+          <ConversationTree
+            convId={id}
+            activeNodeId={activeNodeId}
+            onSelectNode={handleNodeClick}
+          />
+        </div>
+      )}
     </div>
   )
 }
 
 // ── Sub-components ─────────────────────────────────────────────────────────────
 
-function ConversationHeader({ conversationId }: { conversationId: string }) {
+function ConversationHeader({
+  conversationId,
+  showTree,
+  onToggleTree,
+}: {
+  conversationId: string
+  showTree: boolean
+  onToggleTree: () => void
+}) {
   const { data: conv } = useQuery({
     queryKey: ['conversations', conversationId],
     queryFn: () => conversationsApi.get(conversationId),
@@ -202,9 +254,20 @@ function ConversationHeader({ conversationId }: { conversationId: string }) {
   return (
     <div className="flex items-center gap-2.5 px-5 py-3 border-b border-white/[0.06] bg-[#0e0e0e] flex-shrink-0">
       <MessageSquare className="w-4 h-4 text-[#3a3a3a] flex-shrink-0" />
-      <span className="text-sm font-medium text-[#c0c0c0] truncate">
+      <span className="flex-1 text-sm font-medium text-[#c0c0c0] truncate">
         {conv?.title ?? '…'}
       </span>
+      <button
+        onClick={onToggleTree}
+        title="Toggle tree view"
+        className={`flex items-center justify-center w-7 h-7 rounded-md transition-colors cursor-pointer
+          ${showTree
+            ? 'bg-violet-600/20 text-violet-400'
+            : 'text-[#3a3a3a] hover:text-white/50 hover:bg-white/[0.04]'
+          }`}
+      >
+        <GitBranch className="w-3.5 h-3.5" />
+      </button>
     </div>
   )
 }
@@ -298,13 +361,11 @@ function MessageBubble({ message }: { message: LocalMessage }) {
 
   return (
     <div className="flex gap-3 items-start">
-      {/* Assistant avatar */}
       <div className="w-7 h-7 bg-[#1a1a1a] border border-white/[0.08] rounded-lg
                       flex items-center justify-center flex-shrink-0 mt-0.5">
         <Bot className="w-3.5 h-3.5 text-violet-400" />
       </div>
 
-      {/* Bubble */}
       <div className="flex-1 min-w-0">
         <div className="bg-[#141414] border border-white/[0.06] rounded-2xl rounded-tl-sm px-4 py-3">
           <div className="text-sm text-[#d4d4d4] leading-relaxed">

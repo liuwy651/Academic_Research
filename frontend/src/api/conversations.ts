@@ -1,5 +1,6 @@
 import client from './client'
 import type { Conversation, ConversationListResponse } from '../types/conversation'
+import type { Message, TreeNode } from '../types/message'
 
 export const conversationsApi = {
   list: (limit = 50) =>
@@ -16,4 +17,14 @@ export const conversationsApi = {
 
   delete: (id: string) =>
     client.delete(`/conversations/${id}`),
+
+  getMessages: (id: string, nodeId?: string) =>
+    client
+      .get<Message[]>(`/conversations/${id}/messages`, {
+        params: nodeId ? { node_id: nodeId } : undefined,
+      })
+      .then(r => r.data),
+
+  getTree: (id: string) =>
+    client.get<TreeNode[]>(`/conversations/${id}/tree`).then(r => r.data),
 }
