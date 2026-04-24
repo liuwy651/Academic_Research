@@ -1,3 +1,4 @@
+import asyncio
 import json
 import uuid
 from typing import Optional
@@ -190,6 +191,8 @@ async def chat_stream(
 
             yield f"data: {json.dumps({'type': 'done', 'message_id': str(asst_msg.id), 'title': new_title, 'prompt_tokens': prompt_tokens, 'completion_tokens': completion_tokens, 'context_truncated': context_truncated})}\n\n"
 
+        except asyncio.CancelledError:
+            return  # client disconnected — clean exit, nothing to yield
         except Exception as e:
             yield f"data: {json.dumps({'type': 'error', 'detail': str(e)})}\n\n"
 

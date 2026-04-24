@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowUp, Bot, FileText, GitBranch, Loader2, MessageSquare, Paperclip, X } from 'lucide-react'
+import { ArrowUp, Bot, FileText, GitBranch, Loader2, MessageSquare, Paperclip, Square, X } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
@@ -35,11 +35,10 @@ export default function ConversationPage() {
   const { id } = useParams<{ id: string }>()
   const token = useAuthStore(s => s.token)
   const queryClient = useQueryClient()
-  const { activeNodeId, setActiveNodeId } = useConversationStore()
+  const { activeNodeId, setActiveNodeId, isGenerating, startGenerating, stopGenerating } = useConversationStore()
 
   const [messages, setMessages] = useState<LocalMessage[]>([])
   const [input, setInput] = useState('')
-  const [isStreaming, setIsStreaming] = useState(false)
   const [showTree, setShowTree] = useState(true)
   const [treeWidth, setTreeWidth] = useState(280)
   const [tokenStats, setTokenStats] = useState<{
@@ -140,7 +139,9 @@ export default function ConversationPage() {
 
   const sendMessage = async () => {
     const content = input.trim()
-    if (!content || isStreaming || !id) return
+    if (!content || isGenerating || !id) return
+
+    const controller = new AbortController()
 
     const fileIds = pendingFiles
       .filter(p => p.status === 'done' && p.fileResponse)
@@ -148,7 +149,7 @@ export default function ConversationPage() {
 
     setInput('')
     setPendingFiles([])
-    setIsStreaming(true)
+    startGenerating(controller)
 
     const attachedFiles: FileAttachmentInfo[] = pendingFiles
       .filter(p => p.status === 'done' && p.fileResponse)
@@ -189,6 +190,7 @@ export default function ConversationPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ content, parent_id: activeNodeId, file_ids: fileIds }),
+        signal: controller.signal,
       })
 
       if (!response.ok || !response.body) {
@@ -248,12 +250,19 @@ export default function ConversationPage() {
         }
       }
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Failed to get response'
-      setMessages(prev => prev.map(m =>
-        m.id === streamingId ? { ...m, content: `⚠ ${msg}`, streaming: false } : m
-      ))
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        // User stopped generation — keep partial content, just stop the cursor
+        setMessages(prev => prev.map(m =>
+          m.id === streamingId ? { ...m, streaming: false } : m
+        ))
+      } else {
+        const msg = err instanceof Error ? err.message : 'Failed to get response'
+        setMessages(prev => prev.map(m =>
+          m.id === streamingId ? { ...m, content: `⚠ ${msg}`, streaming: false } : m
+        ))
+      }
     } finally {
-      setIsStreaming(false)
+      stopGenerating()
     }
   }
 
@@ -276,7 +285,7 @@ export default function ConversationPage() {
 
         <div className="flex-1 overflow-y-auto">
           <div className="max-w-3xl mx-auto px-4 py-6 space-y-6">
-            {messages.length === 0 && !isStreaming && <EmptyState />}
+            {messages.length === 0 && !isGenerating && <EmptyState />}
             {messages.map(msg => (
               <MessageBubble key={msg.id} message={msg} />
             ))}
@@ -319,7 +328,7 @@ export default function ConversationPage() {
               <div className="flex items-end gap-2">
                 <button
                   onClick={() => fileInputRef.current?.click()}
-                  disabled={isStreaming}
+                  disabled={isGenerating}
                   title="Attach PDF or Markdown"
                   className="flex-shrink-0 w-7 h-7 flex items-center justify-center
                              text-[#3a3a3a] hover:text-violet-400 disabled:opacity-30
@@ -333,21 +342,32 @@ export default function ConversationPage() {
                   onChange={e => setInput(e.target.value)}
                   onKeyDown={handleKeyDown}
                   placeholder="Message…"
-                  disabled={isStreaming}
+                  disabled={isGenerating}
                   rows={1}
                   className="flex-1 bg-transparent text-sm text-[#f0f0f0] placeholder-[#3a3a3a]
                              resize-none outline-none min-h-[22px] max-h-[160px] leading-[22px]
                              disabled:opacity-50"
                 />
-                <button
-                  onClick={sendMessage}
-                  disabled={!input.trim() || isStreaming}
-                  className="flex-shrink-0 w-8 h-8 bg-violet-600 hover:bg-violet-500
-                             disabled:opacity-25 disabled:cursor-not-allowed
-                             rounded-lg flex items-center justify-center transition-colors cursor-pointer"
-                >
-                  <ArrowUp className="w-4 h-4 text-white" />
-                </button>
+                {isGenerating ? (
+                  <button
+                    onClick={stopGenerating}
+                    title="Stop generating"
+                    className="flex-shrink-0 w-8 h-8 bg-[#2a2a2a] hover:bg-[#383838]
+                               rounded-lg flex items-center justify-center transition-colors cursor-pointer"
+                  >
+                    <Square className="w-3.5 h-3.5 text-white fill-white" />
+                  </button>
+                ) : (
+                  <button
+                    onClick={sendMessage}
+                    disabled={!input.trim()}
+                    className="flex-shrink-0 w-8 h-8 bg-violet-600 hover:bg-violet-500
+                               disabled:opacity-25 disabled:cursor-not-allowed
+                               rounded-lg flex items-center justify-center transition-colors cursor-pointer"
+                  >
+                    <ArrowUp className="w-4 h-4 text-white" />
+                  </button>
+                )}
               </div>
             </div>
             <p className="text-center text-[10px] text-[#282828] mt-2">
