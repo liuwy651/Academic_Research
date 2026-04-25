@@ -48,3 +48,5 @@ frontend/yarn-error.log*
 frontend/public/
 
 backend/uploads/
+
+backend/app/static/

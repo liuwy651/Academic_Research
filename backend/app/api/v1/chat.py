@@ -3,14 +3,18 @@ import json
 import logging
 import re
 import uuid
+from datetime import datetime
 from typing import Optional
 
 logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
+from langchain_core.messages import AIMessage as LCAIMessage
+from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage as LCToolMessage
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.agents.graph import MCP_FS_AUTH, get_agent_graph
 from app.agents.tools.registry import registry
 from app.api.deps import get_current_user
 from app.core.config import settings
@@ -29,6 +33,8 @@ from app.services.chat import (
 from app.services.conversation import get_conversation, set_title_by_id
 from app.schemas.file import FileAttachmentInfo
 from app.services.file import attach_files_to_message, get_files_by_message_ids, get_files_text
+
+_IMAGE_RE = re.compile(r'\[IMAGE_URL:(/static/plots/[^\]]+)\]')
 
 router = APIRouter(prefix="/conversations", tags=["chat"])
 
@@ -91,6 +97,7 @@ async def chat_stream(
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
+    # 验证 LLM 密钥配置（早失败，返回 503）
     try:
         llm = get_llm_client()
     except ValueError as e:
@@ -116,23 +123,19 @@ async def chat_stream(
     else:
         user_content_for_llm = payload.content
 
-    # With files: budget against the full context window so file tokens don't
-    # get double-counted (trim_to_budget already deducts user_content tokens internally).
-    # Without files: use the conservative history budget.
     if files_text:
         effective_budget = max(0, settings.LLM_CONTEXT_WINDOW - settings.LLM_RESPONSE_RESERVE)
     else:
         effective_budget = settings.LLM_HISTORY_BUDGET
 
-    # Apply token budget — trim oldest messages to fit within effective budget
     trimmed_history, context_truncated = trim_to_budget(
         raw_history, user_content_for_llm, effective_budget
     )
+    prompt_tokens = count_messages_tokens(
+        trimmed_history + [{"role": "user", "content": user_content_for_llm}]
+    )
 
-    messages_for_llm = trimmed_history + [{"role": "user", "content": user_content_for_llm}]
-    prompt_tokens = count_messages_tokens(messages_for_llm)
-
-    # Save user message; track whether this is the first exchange for title generation
+    # Save user message
     user_token_count = estimate_tokens(payload.content)
     is_first_message = conv.title == "New Conversation" and conv.current_node_id is None
     user_msg = await create_message(
@@ -147,90 +150,84 @@ async def chat_stream(
     await db.commit()
 
     async def generate():
-        full_content = ""
+        # ── 构建 LangChain 消息列表（系统提示 + 历史 + 用户消息）──────────────
+        now = datetime.now().strftime("%Y年%m月%d日 %H:%M")
+        has_fs = any(
+            s["function"]["name"].startswith("fs__")
+            for s in registry.get_all_tool_schemas()
+        )
+        system_parts = [f"当前时间：{now}"]
+        if settings.LLM_SYSTEM_PROMPT:
+            system_parts.append(settings.LLM_SYSTEM_PROMPT)
+        if has_fs:
+            system_parts.append(MCP_FS_AUTH)
+
+        lc_msgs: list = [SystemMessage(content="\n\n".join(system_parts))]
+        for row in trimmed_history:
+            role, content = row["role"], row["content"]
+            if role == "user":
+                lc_msgs.append(HumanMessage(content=content))
+            elif role == "assistant":
+                lc_msgs.append(LCAIMessage(content=content))
+        lc_msgs.append(HumanMessage(content=user_content_for_llm))
+
+        graph = get_agent_graph()
+        full_content_parts: list[str] = []
+
         try:
-            # ── 第一次请求：带工具定义，实时推送文本，拦截 tool_calls ──────────
-            pending_tool_calls: list[dict] = []
-
-            logger.info("Starting first LLM request with tools for conv %s", conv_id)
-            async for event in llm.stream_chat_with_tools(
-                messages_for_llm, tools=registry.get_all_tool_schemas()
+            async for event in graph.astream_events(
+                {"messages": lc_msgs},
+                version="v2",
+                config={"recursion_limit": 15},
             ):
-                if event["type"] == "text":
-                    full_content += event["content"]
-                    yield f"data: {json.dumps({'type': 'chunk', 'content': event['content']})}\n\n"
-                elif event["type"] == "tool_calls":
-                    pending_tool_calls = event["calls"]
-                    logger.info("Intercepted tool_calls: %s", pending_tool_calls)
+                etype: str = event["event"]
+                ename: str = event.get("name", "")
+                data: dict = event.get("data", {})
 
-            # ── 如果模型决定调用工具：执行 → 二次请求 ────────────────────────
-            if pending_tool_calls:
-                logger.info("Tool calls triggered: %s", [tc["function"]["name"] for tc in pending_tool_calls])
+                # ── LLM 流式文本块 ────────────────────────────────────────
+                if etype == "on_chat_model_stream":
+                    chunk = data.get("chunk")
+                    if chunk is None:
+                        continue
+                    content = chunk.content
+                    if isinstance(content, str) and content:
+                        full_content_parts.append(content)
+                        yield f"data: {json.dumps({'type': 'chunk', 'content': content})}\n\n"
+                    elif isinstance(content, list):
+                        for block in content:
+                            if isinstance(block, dict) and block.get("type") == "text":
+                                t: str = block["text"]
+                                if t:
+                                    full_content_parts.append(t)
+                                    yield f"data: {json.dumps({'type': 'chunk', 'content': t})}\n\n"
 
-                # 组装带工具调用记录的 messages（OpenAI 标准格式）
-                # 不设置 content 键（而非 None），以兼容更多 LLM 后端
-                asst_tool_msg: dict = {
-                    "role": "assistant",
-                    "tool_calls": pending_tool_calls,
-                }
-                if full_content:
-                    asst_tool_msg["content"] = full_content
+                # ── 工具开始执行 ──────────────────────────────────────────
+                elif etype == "on_tool_start":
+                    tool_input = data.get("input", {})
+                    yield f"data: {json.dumps({'type': 'tool_start', 'name': ename, 'args': tool_input})}\n\n"
 
-                messages_augmented: list[dict] = list(messages_for_llm) + [asst_tool_msg]
-                image_mds: list[str] = []
+                # ── 工具执行完毕 ──────────────────────────────────────────
+                elif etype == "on_tool_end":
+                    # LangGraph 1.x: output 是 ToolMessage 对象
+                    output = data.get("output")
+                    raw_text: str = (
+                        output.content
+                        if isinstance(output, LCToolMessage)
+                        else str(output) if output is not None else ""
+                    )
 
-                for tc in pending_tool_calls:
-                    name = tc["function"]["name"]
-                    try:
-                        args = json.loads(tc["function"]["arguments"])
-                    except (json.JSONDecodeError, KeyError):
-                        args = {}
-
-                    # 通知前端正在调用哪个工具
-                    yield f"data: {json.dumps({'type': 'tool_start', 'name': name, 'args': args})}\n\n"
-
-                    # 同步函数用 to_thread 防止阻塞事件循环
-                    result: str = await asyncio.to_thread(registry.execute_tool, name, args)
-
-                    # 检测 MCP 权限错误，追加引导说明供模型理解
-                    if result.startswith("[MCP 工具错误]") and any(
-                        kw in result for kw in ("EACCES", "permission", "Permission", "denied", "Denied", "not allowed")
-                    ):
-                        result += (
-                            "\n\n[权限引导] 该路径未在 MCP filesystem server 的授权目录中。"
-                            "请告知用户：可在后端配置 MCP_FILESYSTEM_PATHS 环境变量（逗号分隔）添加目标路径，"
-                            "然后重启服务使配置生效。"
-                        )
-
-                    # 通知前端工具返回结果（内容截断避免 SSE 报文过大）
-                    yield f"data: {json.dumps({'type': 'tool_result', 'name': name, 'content': result[:800]})}\n\n"
-
-                    # 如果沙箱生成了图片，以 markdown 图片语法注入 content 流
-                    # chunk 在工具执行后立刻发出，图片自然出现在对话中间位置
-                    image_match = re.search(r'\[IMAGE_URL:(/static/plots/[^\]]+)\]', result)
+                    # 图片 URL 作为 chunk 注入，保持文图顺序正确
+                    image_match = _IMAGE_RE.search(raw_text)
                     if image_match:
                         image_md = f"\n\n![]({image_match.group(1)})\n\n"
-                        image_mds.append(image_md)
+                        full_content_parts.append(image_md)
                         yield f"data: {json.dumps({'type': 'chunk', 'content': image_md})}\n\n"
 
-                    # 剥除内部图片标记再送入 LLM，避免模型在回复中重复输出图片 URL
-                    llm_result = re.sub(r'\n*\[IMAGE_URL:[^\]]+\]', '', result).strip()
-                    if image_match:
-                        llm_result += "\n[图片已由界面自动渲染，请勿在回复中用任何文字描述图片的保存或展示过程，直接分析图表内容即可]"
-                    messages_augmented.append({
-                        "role": "tool",
-                        "tool_call_id": tc["id"],
-                        "content": llm_result or "(代码执行完毕，无任何输出)",
-                    })
+                    clean = _IMAGE_RE.sub("", raw_text).strip()
+                    yield f"data: {json.dumps({'type': 'tool_result', 'name': ename, 'content': clean[:800]})}\n\n"
 
-                # 二次请求：保留工具调用前的文字，拼接图片 markdown，再追加模型文字
-                # 图片 markdown 已作为 chunk 发出，无需重发
-                full_content += "".join(image_mds)
-                async for chunk in llm.stream_chat(messages_augmented):
-                    full_content += chunk
-                    yield f"data: {json.dumps({'type': 'chunk', 'content': chunk})}\n\n"
-
-            # ── 保存助手消息 & done 事件（与原有逻辑完全一致）───────────────
+            # ── 保存助手消息 ──────────────────────────────────────────────
+            full_content = "".join(full_content_parts)
             new_title: str | None = None
             completion_tokens = estimate_tokens(full_content)
 
@@ -260,9 +257,9 @@ async def chat_stream(
                             title_messages,
                             system="你是对话标题生成助手，只输出简洁标题，不超过15个字。",
                         )
-                        cleaned = raw.strip().strip('《》「」【】""\'\'""。，.').strip()
-                        if cleaned:
-                            new_title = cleaned[:20]
+                        cleaned_title = raw.strip().strip('《》「」【】""\'\'""。，.').strip()
+                        if cleaned_title:
+                            new_title = cleaned_title[:20]
                             await set_title_by_id(save_db, conv_id, new_title)
                     except Exception:
                         pass
@@ -274,6 +271,7 @@ async def chat_stream(
         except asyncio.CancelledError:
             return
         except Exception as e:
+            logger.exception("generate() 异常: %s", e)
             yield f"data: {json.dumps({'type': 'error', 'detail': str(e)})}\n\n"
 
     return StreamingResponse(

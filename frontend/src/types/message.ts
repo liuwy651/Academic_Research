@@ -17,14 +17,16 @@ export type Message = {
   files: FileAttachmentInfo[]
 }
 
-export type ToolStatus = {
+export type ToolStep = {
   name: string
   args: Record<string, unknown>
+  result?: string
+  status: 'running' | 'done'
 }
 
 export type LocalMessage = Message & {
   streaming?: boolean
-  toolStatus?: ToolStatus
+  steps?: ToolStep[]
   images?: string[]
 }
 
