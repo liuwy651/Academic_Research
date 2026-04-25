@@ -5,6 +5,13 @@ export type FileAttachmentInfo = {
   token_estimate: number | null
 }
 
+export type ToolStep = {
+  name: string
+  args: Record<string, unknown>
+  result?: string
+  status: 'running' | 'done'
+}
+
 export type Message = {
   id: string
   conversation_id: string
@@ -14,18 +21,14 @@ export type Message = {
   parent_id: string | null
   summary: string | null
   context_tokens: number | null
+  thinking: string | null
+  tool_steps: ToolStep[] | null
   files: FileAttachmentInfo[]
-}
-
-export type ToolStep = {
-  name: string
-  args: Record<string, unknown>
-  result?: string
-  status: 'running' | 'done'
 }
 
 export type LocalMessage = Message & {
   streaming?: boolean
+  thinkingDone?: boolean
   steps?: ToolStep[]
   images?: string[]
 }

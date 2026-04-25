@@ -10,7 +10,6 @@ from typing import Any, Literal, Optional
 
 from langchain_core.messages import AIMessage, ToolMessage
 from langchain_core.tools import StructuredTool
-from langchain_openai import ChatOpenAI
 from langgraph.graph import END, StateGraph
 from langgraph.prebuilt import ToolNode
 from pydantic import Field, create_model
@@ -111,6 +110,7 @@ def _registry_to_lc_tools(reg) -> list[StructuredTool]:
 # ── 图构建 ────────────────────────────────────────────────────────────────────
 
 _IMAGE_RE = re.compile(r'\[IMAGE_URL:[^\]]+\]')
+_THINK_RE = re.compile(r'<think>.*?</think>', re.DOTALL)
 
 
 def _build_graph():
@@ -119,7 +119,9 @@ def _build_graph():
     lc_tools = _registry_to_lc_tools(registry)
     logger.info("构建 Agent 图，工具数量: %d", len(lc_tools))
 
-    llm = ChatOpenAI(
+    from app.agents.thinking_chat import ChatWithThinking
+
+    llm = ChatWithThinking(
         model=settings.LLM_MODEL,
         api_key=settings.DASHSCOPE_API_KEY,
         base_url=settings.DASHSCOPE_BASE_URL,
@@ -153,6 +155,12 @@ def _build_graph():
                 cleaned.append(msg)
 
         response = await llm_with_tools.ainvoke(cleaned)
+
+        # 剥离 <think> 块，避免思考内容污染后续 LLM 调用的历史
+        if isinstance(response.content, str) and "<think>" in response.content:
+            clean_content = _THINK_RE.sub("", response.content).strip()
+            response = response.model_copy(update={"content": clean_content})
+
         return {"messages": [response]}
 
     def should_continue(state: AgentState) -> Literal["tools", "__end__"]:

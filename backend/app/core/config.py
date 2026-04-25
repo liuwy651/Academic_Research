@@ -29,8 +29,10 @@ class Settings(BaseSettings):
     # LLM
     LLM_PROVIDER: str = "dashscope"
     LLM_MODEL: str = "qwen-turbo"
+    LLM_TITLE_MODEL: str = "qwen-turbo"  # 标题生成用轻量模型，避免 reasoning 模型耗尽 max_tokens
     LLM_MAX_TOKENS: int = 4096
     LLM_SYSTEM_PROMPT: str = "You are a helpful AI assistant."
+    LLM_ENABLE_THINKING: bool = True  # 仅 qwen3-* 等 thinking 模型支持，qwen-plus/turbo 不支持
     DASHSCOPE_API_KEY: str = ""
     DASHSCOPE_BASE_URL: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 

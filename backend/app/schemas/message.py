@@ -28,6 +28,8 @@ class MessageResponse(BaseModel):
     parent_id: uuid.UUID | None = None
     summary: str | None = None
     context_tokens: int | None = None
+    thinking: str | None = None
+    tool_steps: list | None = None
     files: list[FileAttachmentInfo] = []
 
     model_config = {"from_attributes": True}

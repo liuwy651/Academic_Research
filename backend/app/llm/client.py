@@ -101,7 +101,8 @@ class DashScopeClient:
             yield {"type": "tool_calls", "calls": calls}
 
     async def chat(
-        self, messages: list[dict], system: str | None = None, max_tokens: int = 60
+        self, messages: list[dict], system: str | None = None,
+        max_tokens: int = 60, model: str | None = None,
     ) -> str:
         from openai import AsyncOpenAI
 
@@ -111,7 +112,7 @@ class DashScopeClient:
         )
         all_messages = _prepend_system(messages, system)
         response = await client.chat.completions.create(
-            model=settings.LLM_MODEL,
+            model=model or settings.LLM_MODEL,
             messages=all_messages,
             stream=False,
             max_tokens=max_tokens,

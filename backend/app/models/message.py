@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import DateTime, ForeignKey, Integer, JSON, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -24,6 +24,8 @@ class Message(Base):
     summary: Mapped[str | None] = mapped_column(String(20), nullable=True)
     token_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     context_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    thinking: Mapped[str | None] = mapped_column(Text, nullable=True)
+    tool_steps: Mapped[list | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

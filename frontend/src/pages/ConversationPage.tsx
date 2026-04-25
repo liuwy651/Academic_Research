@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowUp, Bot, ChevronDown, ChevronRight, Code2, FileText, GitBranch, Globe, Loader2, MessageSquare, Paperclip, Square, Wrench, X } from 'lucide-react'
+import { ArrowUp, Bot, ChevronDown, ChevronRight, Code2, FileText, GitBranch, Globe, Loader2, MessageSquare, Paperclip, Sparkles, Square, Wrench, X } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
@@ -14,10 +14,18 @@ import { useConversationStore } from '../store/conversationStore'
 import { conversationsApi } from '../api/conversations'
 import { filesApi } from '../api/files'
 import ConversationTree from '../components/ConversationTree'
-import type { FileAttachmentInfo, LocalMessage, ToolStep } from '../types/message'
+import type { FileAttachmentInfo, LocalMessage, Message, ToolStep } from '../types/message'
 import type { PendingFile } from '../types/file'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+function toLocalMessages(data: Message[]): LocalMessage[] {
+  return data.map(m => ({
+    ...m,
+    steps: m.tool_steps ?? undefined,
+    thinkingDone: !!(m.thinking || m.tool_steps?.length),
+  }))
+}
 
 function extractTokenStats(messages: LocalMessage[]) {
   for (let i = messages.length - 1; i >= 0; i--) {
@@ -76,9 +84,10 @@ export default function ConversationPage() {
       headers: { Authorization: `Bearer ${token}` },
     })
       .then(r => r.json())
-      .then((data: LocalMessage[]) => {
-        setMessages(data)
-        setTokenStats(extractTokenStats(data))
+      .then((data: Message[]) => {
+        const local = toLocalMessages(data)
+        setMessages(local)
+        setTokenStats(extractTokenStats(local))
       })
       .catch(() => {})
   }, [id, token]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -105,9 +114,10 @@ export default function ConversationPage() {
       headers: { Authorization: `Bearer ${token}` },
     })
       .then(r => r.json())
-      .then((data: LocalMessage[]) => {
-        setMessages(data)
-        setTokenStats(extractTokenStats(data))
+      .then((data: Message[]) => {
+        const local = toLocalMessages(data)
+        setMessages(local)
+        setTokenStats(extractTokenStats(local))
       })
       .catch(() => {})
   }, [id, token, setActiveNodeId])
@@ -183,6 +193,10 @@ export default function ConversationPage() {
       streaming: true,
       parent_id: null,
       summary: null,
+      context_tokens: null,
+      thinking: null,
+      tool_steps: null,
+      files: [],
     }])
 
     try {
@@ -217,11 +231,17 @@ export default function ConversationPage() {
           if (!jsonStr) continue
           try {
             const ev = JSON.parse(jsonStr)
-            if (ev.type === 'tool_start') {
+            if (ev.type === 'thinking_chunk') {
+              setMessages(prev => prev.map(m =>
+                m.id === streamingId
+                  ? { ...m, thinking: (m.thinking ?? '') + ev.content }
+                  : m
+              ))
+            } else if (ev.type === 'tool_start') {
               const newStep: ToolStep = { name: ev.name, args: ev.args ?? {}, status: 'running' }
               setMessages(prev => prev.map(m =>
                 m.id === streamingId
-                  ? { ...m, steps: [...(m.steps ?? []), newStep] }
+                  ? { ...m, thinkingDone: true, steps: [...(m.steps ?? []), newStep] }
                   : m
               ))
             } else if (ev.type === 'tool_result') {
@@ -239,7 +259,7 @@ export default function ConversationPage() {
             } else if (ev.type === 'chunk') {
               setMessages(prev => prev.map(m =>
                 m.id === streamingId
-                  ? { ...m, content: m.content + ev.content }
+                  ? { ...m, thinkingDone: true, content: m.content + ev.content }
                   : m
               ))
             } else if (ev.type === 'done') {
@@ -615,8 +635,13 @@ function MessageBubble({ message }: { message: LocalMessage }) {
 
       <div className="flex-1 min-w-0">
         <div className="bg-[#141414] border border-white/[0.06] rounded-2xl rounded-tl-sm px-4 py-3">
-          {message.steps && message.steps.length > 0 && (
-            <ToolStepsPanel steps={message.steps} />
+          {(message.thinking || !!message.steps?.length) && (
+            <ReasoningPanel
+              thinking={message.thinking ?? undefined}
+              thinkingDone={!!message.thinkingDone}
+              steps={message.steps}
+              streaming={!!message.streaming}
+            />
           )}
 
           <div className="text-sm text-[#d4d4d4] leading-relaxed">
@@ -629,9 +654,9 @@ function MessageBubble({ message }: { message: LocalMessage }) {
                 {message.content}
               </ReactMarkdown>
             ) : (
-              !streaming && <span className="text-[#4a4a4a]">…</span>
+              !streaming && !message.thinking && <span className="text-[#4a4a4a]">…</span>
             )}
-            {streaming && <span className="cursor-blink" />}
+            {streaming && !!message.thinkingDone && <span className="cursor-blink" />}
           </div>
         </div>
       </div>
@@ -639,12 +664,12 @@ function MessageBubble({ message }: { message: LocalMessage }) {
   )
 }
 
-// ── Tool steps panel ──────────────────────────────────────────────────────────
+// ── Reasoning panel (unified thinking + tool steps) ───────────────────────────
 
 function getStepLabel(name: string): string {
   if (name === 'execute_bocha_search') return '网络搜索'
   if (name === 'execute_python_code') return '运行 Python'
-  if (name.startsWith('fs_')) return '文件系统'
+  if (name.startsWith('fs__')) return '文件系统'
   return name
 }
 
@@ -666,67 +691,160 @@ function getStepSummary(step: ToolStep): string {
   return s.length > 50 ? s.slice(0, 50) + '…' : s
 }
 
-function ToolStepsPanel({ steps }: { steps: ToolStep[] }) {
-  const [expanded, setExpanded] = useState<Set<number>>(new Set())
-
-  const toggle = (i: number) => {
-    setExpanded(prev => {
-      const next = new Set(prev)
-      next.has(i) ? next.delete(i) : next.add(i)
-      return next
-    })
-  }
+function ToolStepRow({ step }: { step: ToolStep }) {
+  const [open, setOpen] = useState(false)
+  const isRunning = step.status === 'running'
+  const label = getStepLabel(step.name)
+  const summary = getStepSummary(step)
+  const Icon = step.name === 'execute_bocha_search' ? Globe
+    : step.name === 'execute_python_code' ? Code2
+    : Wrench
 
   return (
-    <div className="mb-3 pb-2.5 border-b border-white/[0.06] space-y-0.5">
-      {steps.map((step, i) => {
-        const isExpanded = expanded.has(i)
-        const label = getStepLabel(step.name)
-        const summary = getStepSummary(step)
-        const isRunning = step.status === 'running'
-        const StepIcon = step.name === 'execute_bocha_search' ? Globe
-          : step.name === 'execute_python_code' ? Code2
-          : Wrench
+    <div>
+      <button
+        onClick={() => step.result && setOpen(o => !o)}
+        disabled={!step.result}
+        className="flex items-center gap-2 w-full text-left px-2 py-1 rounded-md
+                   hover:bg-white/[0.04] transition-colors disabled:cursor-default"
+      >
+        {isRunning
+          ? <Loader2 className="w-3 h-3 text-violet-400 animate-spin flex-shrink-0" />
+          : <Icon className="w-3 h-3 text-violet-400/50 flex-shrink-0" />
+        }
+        <span className={`text-[11px] font-medium flex-shrink-0 ${isRunning ? 'text-violet-300/80' : 'text-[#505050]'}`}>
+          {label}
+        </span>
+        {summary && (
+          <span className="text-[11px] text-[#363636] truncate">{summary}</span>
+        )}
+        {step.result && (
+          <span className="ml-auto flex-shrink-0">
+            {open
+              ? <ChevronDown className="w-3 h-3 text-[#383838]" />
+              : <ChevronRight className="w-3 h-3 text-[#383838]" />
+            }
+          </span>
+        )}
+      </button>
+      {open && step.result && (
+        <pre className="mx-2 mt-0.5 mb-1 text-[10px] text-[#646464] bg-[#0a0a0a]
+                        border border-white/[0.05] rounded-lg px-3 py-2
+                        overflow-x-auto whitespace-pre-wrap break-words
+                        max-h-48 overflow-y-auto leading-relaxed">
+          {step.result}
+        </pre>
+      )}
+    </div>
+  )
+}
 
-        return (
-          <div key={i}>
-            <button
-              onClick={() => step.result && toggle(i)}
-              disabled={!step.result}
-              className="flex items-center gap-2 w-full text-left px-1.5 py-1 rounded-md
-                         hover:bg-white/[0.03] transition-colors disabled:cursor-default"
-            >
-              {isRunning ? (
-                <Loader2 className="w-3 h-3 text-violet-400 animate-spin flex-shrink-0" />
-              ) : (
-                <StepIcon className="w-3 h-3 text-violet-400/50 flex-shrink-0" />
-              )}
-              <span className={`text-[11px] font-medium flex-shrink-0 ${isRunning ? 'text-violet-300/80' : 'text-[#505050]'}`}>
-                {label}
-              </span>
-              {summary && (
-                <span className="text-[11px] text-[#383838] truncate">{summary}</span>
-              )}
-              {step.result && (
-                <span className="ml-auto flex-shrink-0">
-                  {isExpanded
-                    ? <ChevronDown className="w-3 h-3 text-[#404040]" />
-                    : <ChevronRight className="w-3 h-3 text-[#404040]" />
-                  }
-                </span>
-              )}
-            </button>
-            {isExpanded && step.result && (
-              <pre className="mx-1.5 mt-0.5 mb-1 text-[10px] text-[#686868] bg-[#0d0d0d]
-                              border border-white/[0.05] rounded-lg px-3 py-2
-                              overflow-x-auto whitespace-pre-wrap break-words
-                              max-h-48 overflow-y-auto leading-relaxed">
-                {step.result}
-              </pre>
-            )}
+function ReasoningPanel({
+  thinking,
+  thinkingDone,
+  steps,
+  streaming,
+}: {
+  thinking?: string
+  thinkingDone: boolean
+  steps?: ToolStep[]
+  streaming: boolean
+}) {
+  const [open, setOpen] = useState(false)
+  const revealedRef = useRef(false)
+
+  // Expand when thinking finishes for the first time
+  useEffect(() => {
+    if (thinkingDone && !revealedRef.current) {
+      setOpen(true)
+      revealedRef.current = true
+    }
+  }, [thinkingDone])
+
+  // Collapse when streaming ends
+  useEffect(() => {
+    if (!streaming && revealedRef.current) {
+      setOpen(false)
+    }
+  }, [streaming])
+
+  const hasSteps = !!steps?.length
+
+  // While thinking is still in progress: show live thinking text
+  if (!thinkingDone) {
+    return (
+      <div className="mb-3 rounded-xl border border-amber-700/[0.14] bg-amber-900/[0.06] overflow-hidden">
+        <div className="flex items-center gap-2 px-2.5 py-2">
+          <Sparkles className="w-3 h-3 text-amber-400/70 animate-pulse flex-shrink-0" />
+          <span className="text-[11px] text-amber-300/50 font-medium">思考中…</span>
+          {thinking && (
+            <span className="text-[10px] text-amber-800/60 font-mono tabular-nums">
+              {thinking.length} 字
+            </span>
+          )}
+        </div>
+        {thinking && (
+          <div className="px-3 pb-2.5 max-h-48 overflow-y-auto">
+            <p className="text-[11px] font-mono text-amber-100/20 leading-relaxed whitespace-pre-wrap break-words">
+              {thinking}
+            </p>
           </div>
-        )
-      })}
+        )}
+      </div>
+    )
+  }
+
+  // Nothing to show
+  if (!thinking && !hasSteps) return null
+
+  const thinkingLen = thinking?.length ?? 0
+  const toolCount = steps?.length ?? 0
+
+  return (
+    <div className="mb-3 rounded-xl border border-white/[0.07] bg-[#0c0c0a] overflow-hidden">
+      {/* Header */}
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="flex items-center gap-2 w-full px-3 py-2 text-left
+                   hover:bg-white/[0.03] transition-colors"
+      >
+        <Sparkles className="w-3 h-3 text-amber-600/40 flex-shrink-0" />
+        <span className="text-[11px] font-medium text-[#3a3828]">推理过程</span>
+        <span className="text-[10px] text-[#2a2820] font-mono">
+          {thinkingLen > 0 && `${thinkingLen}字`}
+          {thinkingLen > 0 && toolCount > 0 && ' · '}
+          {toolCount > 0 && `${toolCount}个工具`}
+        </span>
+        <span className="ml-auto flex-shrink-0">
+          {open
+            ? <ChevronDown className="w-3 h-3 text-[#2a2820]" />
+            : <ChevronRight className="w-3 h-3 text-[#2a2820]" />
+          }
+        </span>
+      </button>
+
+      {open && (
+        <div className="border-t border-white/[0.05]">
+          {/* Thinking text */}
+          {thinking && (
+            <div className={`px-3 py-2.5 ${hasSteps ? 'border-b border-white/[0.04]' : ''}`}>
+              <p className="text-[11px] font-mono text-amber-100/20
+                            leading-relaxed whitespace-pre-wrap break-words">
+                {thinking}
+              </p>
+            </div>
+          )}
+
+          {/* Tool steps */}
+          {hasSteps && (
+            <div className="px-1.5 py-1.5 space-y-0.5">
+              {steps!.map((step, i) => (
+                <ToolStepRow key={i} step={step} />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }

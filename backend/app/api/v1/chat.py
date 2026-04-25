@@ -173,6 +173,57 @@ async def chat_stream(
 
         graph = get_agent_graph()
         full_content_parts: list[str] = []
+        full_thinking_parts: list[str] = []
+        collected_steps: list[dict] = []
+
+        # ── <think> 标签流式解析状态机 ────────────────────────────────────
+        _THINK_OPEN = "<think>"
+        _THINK_CLOSE = "</think>"
+        _THINK_LAG = max(len(_THINK_OPEN), len(_THINK_CLOSE))
+        _think_buf: str = ""
+        _in_think: bool = False
+
+        def _process_delta(delta: str) -> list[tuple[str, str]]:
+            nonlocal _think_buf, _in_think
+            _think_buf += delta
+            out: list[tuple[str, str]] = []
+            while True:
+                if not _in_think:
+                    i = _think_buf.find(_THINK_OPEN)
+                    if i >= 0:
+                        if i > 0:
+                            out.append(("chunk", _think_buf[:i]))
+                        _think_buf = _think_buf[i + len(_THINK_OPEN):]
+                        _in_think = True
+                    elif len(_think_buf) > _THINK_LAG:
+                        out.append(("chunk", _think_buf[:-_THINK_LAG]))
+                        _think_buf = _think_buf[-_THINK_LAG:]
+                        break
+                    else:
+                        break
+                else:
+                    i = _think_buf.find(_THINK_CLOSE)
+                    if i >= 0:
+                        if i > 0:
+                            out.append(("thinking_chunk", _think_buf[:i]))
+                        _think_buf = _think_buf[i + len(_THINK_CLOSE):]
+                        _in_think = False
+                    elif len(_think_buf) > _THINK_LAG:
+                        out.append(("thinking_chunk", _think_buf[:-_THINK_LAG]))
+                        _think_buf = _think_buf[-_THINK_LAG:]
+                        break
+                    else:
+                        break
+            return out
+
+        def _flush_buf() -> list[tuple[str, str]]:
+            nonlocal _think_buf, _in_think
+            if not _think_buf:
+                return []
+            kind = "thinking_chunk" if _in_think else "chunk"
+            result = [(kind, _think_buf)]
+            _think_buf = ""
+            return result
 
         try:
             async for event in graph.astream_events(
@@ -189,21 +240,46 @@ async def chat_stream(
                     chunk = data.get("chunk")
                     if chunk is None:
                         continue
+
+                    # Thinking 模型（如 qwen3-*）：思考内容在 reasoning_content 字段
+                    rc: str = (getattr(chunk, "additional_kwargs", None) or {}).get("reasoning_content") or ""
+                    if rc:
+                        full_thinking_parts.append(rc)
+                        yield f"data: {json.dumps({'type': 'thinking_chunk', 'content': rc})}\n\n"
+
                     content = chunk.content
+                    deltas: list[str] = []
                     if isinstance(content, str) and content:
-                        full_content_parts.append(content)
-                        yield f"data: {json.dumps({'type': 'chunk', 'content': content})}\n\n"
+                        deltas.append(content)
                     elif isinstance(content, list):
                         for block in content:
                             if isinstance(block, dict) and block.get("type") == "text":
                                 t: str = block["text"]
                                 if t:
-                                    full_content_parts.append(t)
-                                    yield f"data: {json.dumps({'type': 'chunk', 'content': t})}\n\n"
+                                    deltas.append(t)
+                    for delta in deltas:
+                        for kind, text in _process_delta(delta):
+                            if kind == "chunk":
+                                full_content_parts.append(text)
+                                yield f"data: {json.dumps({'type': 'chunk', 'content': text})}\n\n"
+                            else:
+                                full_thinking_parts.append(text)
+                                yield f"data: {json.dumps({'type': 'thinking_chunk', 'content': text})}\n\n"
+
+                # ── LLM 一轮结束，冲刷缓冲区 ─────────────────────────────
+                elif etype == "on_chat_model_end":
+                    for kind, text in _flush_buf():
+                        if kind == "chunk":
+                            full_content_parts.append(text)
+                            yield f"data: {json.dumps({'type': 'chunk', 'content': text})}\n\n"
+                        else:
+                            full_thinking_parts.append(text)
+                            yield f"data: {json.dumps({'type': 'thinking_chunk', 'content': text})}\n\n"
 
                 # ── 工具开始执行 ──────────────────────────────────────────
                 elif etype == "on_tool_start":
                     tool_input = data.get("input", {})
+                    collected_steps.append({"name": ename, "args": tool_input, "status": "running"})
                     yield f"data: {json.dumps({'type': 'tool_start', 'name': ename, 'args': tool_input})}\n\n"
 
                 # ── 工具执行完毕 ──────────────────────────────────────────
@@ -224,10 +300,17 @@ async def chat_stream(
                         yield f"data: {json.dumps({'type': 'chunk', 'content': image_md})}\n\n"
 
                     clean = _IMAGE_RE.sub("", raw_text).strip()
+                    # Update the matching running step to done
+                    for step in reversed(collected_steps):
+                        if step["name"] == ename and step["status"] == "running":
+                            step["result"] = clean[:800]
+                            step["status"] = "done"
+                            break
                     yield f"data: {json.dumps({'type': 'tool_result', 'name': ename, 'content': clean[:800]})}\n\n"
 
             # ── 保存助手消息 ──────────────────────────────────────────────
             full_content = "".join(full_content_parts)
+            full_thinking = "".join(full_thinking_parts) or None
             new_title: str | None = None
             completion_tokens = estimate_tokens(full_content)
 
@@ -236,6 +319,8 @@ async def chat_stream(
                     save_db, conv_id, "assistant", full_content,
                     parent_id=user_msg_id, token_count=completion_tokens,
                     context_tokens=prompt_tokens,
+                    thinking=full_thinking,
+                    tool_steps=collected_steps if collected_steps else None,
                 )
                 await touch_conversation(save_db, conv_id, current_node_id=asst_msg.id)
 
@@ -256,8 +341,12 @@ async def chat_stream(
                         raw = await llm.chat(
                             title_messages,
                             system="你是对话标题生成助手，只输出简洁标题，不超过15个字。",
+                            max_tokens=200,
+                            model=settings.LLM_TITLE_MODEL,
                         )
-                        cleaned_title = raw.strip().strip('《》「」【】""\'\'""。，.').strip()
+                        # Strip any <think>...</think> blocks that reasoning models may emit
+                        raw = re.sub(r'<think>.*?</think>', '', raw, flags=re.DOTALL).strip()
+                        cleaned_title = raw.strip('《》「」【】""\'\'""。，.').strip()
                         if cleaned_title:
                             new_title = cleaned_title[:20]
                             await set_title_by_id(save_db, conv_id, new_title)

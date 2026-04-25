@@ -27,11 +27,11 @@ async def get_messages(db: AsyncSession, conv_id: uuid.UUID) -> list[Message]:
 
 _CTE_PATH_SQL = text("""
 WITH RECURSIVE path AS (
-  SELECT id, parent_id, role, content, created_at, conversation_id, summary, token_count, context_tokens
+  SELECT id, parent_id, role, content, created_at, conversation_id, summary, token_count, context_tokens, thinking, tool_steps
   FROM messages
   WHERE id = :node_id AND conversation_id = :conv_id
   UNION ALL
-  SELECT m.id, m.parent_id, m.role, m.content, m.created_at, m.conversation_id, m.summary, m.token_count, m.context_tokens
+  SELECT m.id, m.parent_id, m.role, m.content, m.created_at, m.conversation_id, m.summary, m.token_count, m.context_tokens, m.thinking, m.tool_steps
   FROM messages m
   JOIN path p ON m.id = p.parent_id
   WHERE m.conversation_id = :conv_id
@@ -91,6 +91,8 @@ async def create_message(
     parent_id: uuid.UUID | None = None,
     token_count: int | None = None,
     context_tokens: int | None = None,
+    thinking: str | None = None,
+    tool_steps: list | None = None,
 ) -> Message:
     msg = Message(
         conversation_id=conv_id,
@@ -100,6 +102,8 @@ async def create_message(
         summary=generate_summary(content),
         token_count=token_count,
         context_tokens=context_tokens,
+        thinking=thinking or None,
+        tool_steps=tool_steps or None,
     )
     db.add(msg)
     await db.flush()
