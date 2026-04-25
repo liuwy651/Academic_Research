@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import AsyncGenerator
 
 from app.core.config import settings
@@ -105,9 +106,10 @@ class DashScopeClient:
 
 def _prepend_system(messages: list[dict], system: str | None) -> list[dict]:
     prompt = system or settings.LLM_SYSTEM_PROMPT
-    if prompt:
-        return [{"role": "system", "content": prompt}, *messages]
-    return messages
+    now = datetime.now().strftime("%Y年%m月%d日 %H:%M")
+    date_line = f"当前时间：{now}"
+    content = f"{date_line}\n\n{prompt}" if prompt else date_line
+    return [{"role": "system", "content": content}, *messages]
 
 
 def get_llm_client() -> DashScopeClient:
