@@ -223,9 +223,9 @@ async def chat_stream(
                         "content": llm_result or "(代码执行完毕，无任何输出)",
                     })
 
-                # 二次请求：full_content 从图片 markdown 起始，再追加模型文字
+                # 二次请求：保留工具调用前的文字，拼接图片 markdown，再追加模型文字
                 # 图片 markdown 已作为 chunk 发出，无需重发
-                full_content = "".join(image_mds)
+                full_content += "".join(image_mds)
                 async for chunk in llm.stream_chat(messages_augmented):
                     full_content += chunk
                     yield f"data: {json.dumps({'type': 'chunk', 'content': chunk})}\n\n"
