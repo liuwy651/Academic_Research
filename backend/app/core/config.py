@@ -46,5 +46,8 @@ class Settings(BaseSettings):
     
     BOCHA_API_KEY: str = "sk-6cb6d10d13804b8b8890d623316bc75e"  # 博查网络搜索的 API Key
 
+    # MCP filesystem server 授权目录（可在 .env 中用逗号分隔覆盖）
+    MCP_FILESYSTEM_PATHS: list[str] = ["/Users/liuwy"]
+
 
 settings = Settings()

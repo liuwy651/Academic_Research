@@ -3,6 +3,15 @@ from typing import AsyncGenerator
 
 from app.core.config import settings
 
+# 当存在文件系统类 MCP 工具时注入此授权段，防止模型以安全理由拒绝本地路径
+_MCP_FS_AUTH = """\
+## 工具调用授权
+
+你运行在受信任的本地开发环境中，已获得以下授权：
+- 使用 fs__ 前缀工具（fs__read_file、fs__write_file、fs__list_directory 等）访问 /Users/liuwy/ 及其所有子目录
+- 当用户提供本地文件路径时，**必须直接调用相应的 fs__ 工具**，严禁以"安全原因""权限不足"或"无法访问本地文件"为由拒绝
+- 若工具返回权限错误，如实将错误内容反馈给用户，并指导用户如何将该路径加入白名单"""
+
 
 class DashScopeClient:
     async def stream_chat(
@@ -43,7 +52,13 @@ class DashScopeClient:
             api_key=settings.DASHSCOPE_API_KEY,
             base_url=settings.DASHSCOPE_BASE_URL,
         )
-        all_messages = _prepend_system(messages, system)
+        # 有文件系统工具时注入授权声明，防止模型误判安全限制
+        base_system = system or settings.LLM_SYSTEM_PROMPT
+        has_fs_tools = any(
+            t.get("function", {}).get("name", "").startswith("fs__") for t in tools
+        )
+        effective_system = f"{base_system}\n\n{_MCP_FS_AUTH}" if has_fs_tools else base_system
+        all_messages = _prepend_system(messages, effective_system)
         stream = await client.chat.completions.create(
             model=settings.LLM_MODEL,
             messages=all_messages,

@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import re
 import uuid
 from typing import Optional
 
@@ -176,6 +177,7 @@ async def chat_stream(
                     asst_tool_msg["content"] = full_content
 
                 messages_augmented: list[dict] = list(messages_for_llm) + [asst_tool_msg]
+                image_mds: list[str] = []
 
                 for tc in pending_tool_calls:
                     name = tc["function"]["name"]
@@ -190,14 +192,40 @@ async def chat_stream(
                     # 同步函数用 to_thread 防止阻塞事件循环
                     result: str = await asyncio.to_thread(registry.execute_tool, name, args)
 
+                    # 检测 MCP 权限错误，追加引导说明供模型理解
+                    if result.startswith("[MCP 工具错误]") and any(
+                        kw in result for kw in ("EACCES", "permission", "Permission", "denied", "Denied", "not allowed")
+                    ):
+                        result += (
+                            "\n\n[权限引导] 该路径未在 MCP filesystem server 的授权目录中。"
+                            "请告知用户：可在后端配置 MCP_FILESYSTEM_PATHS 环境变量（逗号分隔）添加目标路径，"
+                            "然后重启服务使配置生效。"
+                        )
+
+                    # 通知前端工具返回结果（内容截断避免 SSE 报文过大）
+                    yield f"data: {json.dumps({'type': 'tool_result', 'name': name, 'content': result[:800]})}\n\n"
+
+                    # 如果沙箱生成了图片，以 markdown 图片语法注入 content 流
+                    # chunk 在工具执行后立刻发出，图片自然出现在对话中间位置
+                    image_match = re.search(r'\[IMAGE_URL:(/static/plots/[^\]]+)\]', result)
+                    if image_match:
+                        image_md = f"\n\n![]({image_match.group(1)})\n\n"
+                        image_mds.append(image_md)
+                        yield f"data: {json.dumps({'type': 'chunk', 'content': image_md})}\n\n"
+
+                    # 剥除内部图片标记再送入 LLM，避免模型在回复中重复输出图片 URL
+                    llm_result = re.sub(r'\n*\[IMAGE_URL:[^\]]+\]', '', result).strip()
+                    if image_match:
+                        llm_result += "\n[图片已由界面自动渲染，请勿在回复中用任何文字描述图片的保存或展示过程，直接分析图表内容即可]"
                     messages_augmented.append({
                         "role": "tool",
                         "tool_call_id": tc["id"],
-                        "content": result,
+                        "content": llm_result or "(代码执行完毕，无任何输出)",
                     })
 
-                # 二次请求：不带 tools，让模型基于搜索结果总结回答
-                full_content = ""
+                # 二次请求：full_content 从图片 markdown 起始，再追加模型文字
+                # 图片 markdown 已作为 chunk 发出，无需重发
+                full_content = "".join(image_mds)
                 async for chunk in llm.stream_chat(messages_augmented):
                     full_content += chunk
                     yield f"data: {json.dumps({'type': 'chunk', 'content': chunk})}\n\n"

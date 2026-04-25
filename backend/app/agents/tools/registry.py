@@ -92,7 +92,10 @@ class ToolRegistry:
 
         包含：固有工具（bocha + sandbox）+ 所有已注册 MCP Server 的工具。
         """
-        return list(self._schemas)
+        schemas = list(self._schemas)
+        names = [s["function"]["name"] for s in schemas]
+        logger.info("发送给 LLM 的工具列表 (%d 个): %s", len(names), names)
+        return schemas
 
     def execute_tool(self, name: str, args: dict) -> str:
         """统一工具执行入口，根据工具名分发至对应处理器。

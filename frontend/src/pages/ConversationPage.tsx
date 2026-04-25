@@ -550,6 +550,7 @@ const mdComponents = {
   hr() { return <hr className="border-white/[0.08] my-3" /> },
   strong({ children }: any) { return <strong className="font-semibold text-[#e8e8e8]">{children}</strong> },
   em({ children }: any) { return <em className="italic text-[#c8c8c8]">{children}</em> },
+  img({ src, alt }: any) { return <ZoomableImage src={src ?? ''} alt={alt} /> },
 }
 
 // ── Message bubble ─────────────────────────────────────────────────────────────
@@ -628,5 +629,45 @@ function MessageBubble({ message }: { message: LocalMessage }) {
         </div>
       </div>
     </div>
+  )
+}
+
+// ── Zoomable image — used by mdComponents.img ─────────────────────────────────
+
+function ZoomableImage({ src, alt }: { src: string; alt?: string }) {
+  const [zoomed, setZoomed] = useState(false)
+
+  return (
+    <>
+      <img
+        src={src}
+        alt={alt ?? ''}
+        onClick={() => setZoomed(true)}
+        className="max-w-full rounded-lg shadow-md border border-white/[0.08]
+                   cursor-zoom-in hover:border-violet-500/40 transition-colors my-2"
+      />
+      {zoomed && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center
+                     bg-black/80 backdrop-blur-sm"
+          onClick={() => setZoomed(false)}
+        >
+          <img
+            src={src}
+            alt={alt ?? ''}
+            className="max-w-[90vw] max-h-[90vh] rounded-xl shadow-2xl
+                       border border-white/10 cursor-zoom-out"
+            onClick={e => e.stopPropagation()}
+          />
+          <button
+            onClick={() => setZoomed(false)}
+            className="absolute top-4 right-4 w-8 h-8 flex items-center justify-center
+                       rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+    </>
   )
 }

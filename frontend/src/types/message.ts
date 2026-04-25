@@ -25,6 +25,7 @@ export type ToolStatus = {
 export type LocalMessage = Message & {
   streaming?: boolean
   toolStatus?: ToolStatus
+  images?: string[]
 }
 
 export type TreeNode = {
