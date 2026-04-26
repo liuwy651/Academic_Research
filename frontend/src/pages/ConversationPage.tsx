@@ -838,7 +838,10 @@ function ReasoningPanel({
   // While thinking is still in progress: show live thinking text
   if (!thinkingDone) {
     return (
-      <div className="mb-3 rounded-xl border border-amber-700/[0.14] bg-amber-900/[0.06] overflow-hidden">
+      <div className="mb-3 rounded-xl overflow-hidden" style={{
+        backgroundColor: 'var(--bg-tertiary)',
+        border: `1px solid var(--border-color)`
+      }}>
         <div className="flex items-center gap-2 px-2.5 py-2">
           <Sparkles className="w-3 h-3 text-amber-400/70 animate-pulse flex-shrink-0" />
           <span className="text-[11px] text-amber-300/50 font-medium">思考中…</span>
@@ -849,7 +852,7 @@ function ReasoningPanel({
           )}
         </div>
         {thinking && (
-          <div className="px-3 pb-2.5 max-h-48 overflow-y-auto">
+          <div className="px-3 pb-2.5 max-h-96 overflow-y-auto">
             <p className={`text-[11px] font-mono ${thinkingTextColor} leading-relaxed whitespace-pre-wrap break-words`}>
               {thinking}
             </p>
@@ -901,7 +904,7 @@ function ReasoningPanel({
         <div style={{ borderTop: `1px solid var(--border-subtle)` }}>
           {/* Thinking text */}
           {thinking && (
-            <div className="px-3 py-2.5" style={{ borderBottom: hasSteps ? `1px solid var(--border-subtle)` : 'none' }}>
+            <div className="px-3 py-2.5 max-h-96 overflow-y-auto" style={{ borderBottom: hasSteps ? `1px solid var(--border-subtle)` : 'none' }}>
               <p className={`text-[11px] font-mono ${thinkingTextColor}
                             leading-relaxed whitespace-pre-wrap break-words`}>
                 {thinking}

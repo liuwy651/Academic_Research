@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { GitBranch } from 'lucide-react'
 import { conversationsApi } from '../api/conversations'
+import { useThemeStore } from '../store/themeStore'
 import type { TreeNode } from '../types/message'
 
 // ── Exchange (one Q&A turn = one visual node) ──────────────────────────────────
@@ -107,11 +108,20 @@ function layout(roots: Exchange[]) {
   return { pos, depthMap, svgW: maxX + PAD, svgH: maxY + PAD, flat }
 }
 
-function nodeStyle(d: number, active: boolean) {
+function nodeStyle(d: number, active: boolean, isDark: boolean) {
   if (active) return { fill: '#4c1d95', stroke: '#7c3aed', text: '#ede9fe' }
-  if (d === 0) return { fill: '#3b1515', stroke: '#7a3030', text: '#fde8e8' }
-  if (d === 1) return { fill: '#14322a', stroke: '#2d6b50', text: '#d1fae5' }
-  return { fill: '#d9e84a', stroke: '#a8bc2a', text: '#1a1800' }
+
+  if (isDark) {
+    // Dark mode colors
+    if (d === 0) return { fill: '#3b1515', stroke: '#7a3030', text: '#fde8e8' }
+    if (d === 1) return { fill: '#14322a', stroke: '#2d6b50', text: '#d1fae5' }
+    return { fill: '#d9e84a', stroke: '#a8bc2a', text: '#1a1800' }
+  } else {
+    // Light mode colors
+    if (d === 0) return { fill: '#fce8e8', stroke: '#d07070', text: '#6b1515' }
+    if (d === 1) return { fill: '#d1fae5', stroke: '#30b981', text: '#065f46' }
+    return { fill: '#fef08a', stroke: '#ca8a04', text: '#713f12' }
+  }
 }
 
 // ── Tree panel (fills its container, no floating) ──────────────────────────────
@@ -125,6 +135,8 @@ type Props = {
 export default function ConversationTree({ convId, activeNodeId, onSelectNode }: Props) {
   const [pan, setPan] = useState({ x: 20, y: 20 })
   const [dragging, setDragging] = useState(false)
+  const effectiveTheme = useThemeStore(s => s.getEffectiveTheme())
+  const isDark = effectiveTheme === 'dark'
 
   // Reset pan when switching conversations
   useEffect(() => { setPan({ x: 20, y: 20 }) }, [convId])
@@ -157,11 +169,14 @@ export default function ConversationTree({ convId, activeNodeId, onSelectNode }:
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="flex items-center gap-2 px-3 py-2.5 border-b border-white/[0.06] flex-shrink-0">
+      <div className="flex items-center gap-2 px-3 py-2.5 flex-shrink-0" style={{
+        borderBottom: `1px solid var(--border-color)`,
+        backgroundColor: 'var(--bg-secondary)'
+      }}>
         <GitBranch className="w-3.5 h-3.5 text-violet-400/50" />
-        <span className="flex-1 text-[11px] font-medium text-white/35 uppercase tracking-widest">对话树</span>
+        <span className="flex-1 text-[11px] font-medium uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>对话树</span>
         {flat.length > 0 && (
-          <span className="text-[10px] text-white/20 font-mono">{flat.length} 轮</span>
+          <span className="text-[10px] font-mono" style={{ color: 'var(--text-muted)' }}>{flat.length} 轮</span>
         )}
       </div>
 
@@ -169,12 +184,15 @@ export default function ConversationTree({ convId, activeNodeId, onSelectNode }:
       <div className="flex-1 overflow-hidden relative">
         {isLoading ? (
           <div className="flex items-center justify-center h-full">
-            <div className="w-5 h-5 rounded-full border border-white/10 border-t-violet-500 animate-spin" />
+            <div className="w-5 h-5 rounded-full border animate-spin" style={{
+              borderColor: 'var(--border-color)',
+              borderTopColor: '#8b5cf6'
+            }} />
           </div>
         ) : flat.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full gap-2">
-            <GitBranch className="w-8 h-8 text-white/[0.08]" />
-            <p className="text-xs text-white/20">暂无对话</p>
+            <GitBranch className="w-8 h-8" style={{ color: 'var(--text-muted)', opacity: 0.3 }} />
+            <p className="text-xs" style={{ color: 'var(--text-muted)' }}>暂无对话</p>
           </div>
         ) : (
           <svg
@@ -184,7 +202,7 @@ export default function ConversationTree({ convId, activeNodeId, onSelectNode }:
           >
             <defs>
               <marker id="arr" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
-                <polygon points="0 0, 8 3, 0 6" fill="#505050" />
+                <polygon points="0 0, 8 3, 0 6" fill={isDark ? "#505050" : "#a0a0a0"} />
               </marker>
             </defs>
 
@@ -202,7 +220,7 @@ export default function ConversationTree({ convId, activeNodeId, onSelectNode }:
                     <path
                       key={`${ex.userId}-${child.userId}`}
                       d={`M ${pp.cx} ${y1} C ${pp.cx} ${my} ${cp.cx} ${my} ${cp.cx} ${y2}`}
-                      fill="none" stroke="#3a3a3a" strokeWidth={1.5}
+                      fill="none" stroke={isDark ? "#3a3a3a" : "#bfbfbf"} strokeWidth={1.5}
                       markerEnd="url(#arr)"
                     />
                   )
@@ -215,7 +233,7 @@ export default function ConversationTree({ convId, activeNodeId, onSelectNode }:
                 if (!p) return null
                 const d = depthMap.get(ex.userId) ?? 0
                 const isActive = activeNodeId === ex.assistantId || activeNodeId === ex.userId
-                const { fill, stroke, text } = nodeStyle(d, isActive)
+                const { fill, stroke, text } = nodeStyle(d, isActive, isDark)
                 const label = (ex.summary?.trim() || '…').slice(0, 9)
                 return (
                   <g
