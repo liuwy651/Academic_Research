@@ -180,6 +180,27 @@ async def get_document(
     return DocumentOut.model_validate(doc)
 
 
+@router.get("/{kb_id}/documents/{doc_id}/chunks")
+async def get_document_chunks(
+    kb_id: uuid.UUID,
+    doc_id: uuid.UUID,
+    kb=Depends(_require_kb),
+    db: AsyncSession = Depends(get_db),
+):
+    """返回文档所有切块（仅 chunk_index + content，不含向量）。"""
+    try:
+        doc = await kb_svc.get_document(db, kb_id, doc_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    if doc.status != "completed":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="文档尚未处理完成")
+
+    import asyncio
+    from app.services import milvus_service
+    chunks = await asyncio.to_thread(milvus_service.query_doc_chunks, kb_id, doc_id)
+    return {"total": len(chunks), "chunks": chunks}
+
+
 @router.delete("/{kb_id}/documents/{doc_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_document(
     kb_id: uuid.UUID,

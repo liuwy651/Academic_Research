@@ -104,6 +104,23 @@ def insert_chunks(
     logger.info("Milvus 插入完成: kb=%s doc=%s chunks=%d", kb_id, doc_id, len(chunks))
 
 
+def query_doc_chunks(kb_id: uuid.UUID, doc_id: uuid.UUID) -> list[dict]:
+    """按 doc_id 标量过滤查询该文档的所有切块（不含向量），按 chunk_index 排序。"""
+    _ensure_connected()
+    name = _collection_name(kb_id)
+    if not utility.has_collection(name):
+        return []
+    col = Collection(name)
+    col.load()
+    doc_id_str = _doc_id_str(doc_id)
+    results = col.query(
+        expr=f'doc_id == "{doc_id_str}"',
+        output_fields=["chunk_index", "content"],
+        limit=16384,   # 单文档切块数不会超过此上限
+    )
+    return sorted(results, key=lambda r: r["chunk_index"])
+
+
 def delete_doc_chunks(kb_id: uuid.UUID, doc_id: uuid.UUID) -> None:
     _ensure_connected()
     name = _collection_name(kb_id)

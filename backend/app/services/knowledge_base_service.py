@@ -1,10 +1,10 @@
 """知识库业务逻辑：CRUD + 后台文档处理流水线。"""
 import logging
-import re
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,33 +17,32 @@ ALLOWED_TYPES = {"pdf", "docx", "xlsx", "txt"}
 
 # ── 文本切块 ─────────────────────────────────────────────────────────
 
-def chunk_text(text: str, chunk_size: int = 500, overlap: int = 50) -> list[str]:
-    """按句子边界切分文本，保留相邻块重叠。"""
-    # 按中英文句子边界断句
-    sentences = re.split(r'(?<=[。！？.!?])\s*', text.strip())
-    sentences = [s.strip() for s in sentences if s.strip()]
+# Markdown 文档的分隔符优先级：
+#   标题 → 空行（段落）→ 换行 → 中文句号/叹号/问号 → 英文句号/叹号/问号 → 分号 → 逗号 → 空格 → 字符
+_MARKDOWN_SEPARATORS = [
+    "\n## ", "\n### ", "\n#### ",   # Markdown 标题作为最高优先分隔
+    "\n\n",                          # 空行（段落边界）
+    "\n",                            # 换行
+    "。", "！", "？",               # 中文句子结束
+    ". ", "! ", "? ",               # 英文句子结束（带空格，避免切 Dr. Fig. 等缩写）
+    "；", ";",                       # 分号
+    "，", ", ",                      # 逗号（最后手段）
+    " ", "",                         # 单词/字符（兜底）
+]
 
-    chunks: list[str] = []
-    current = ""
+_splitter = RecursiveCharacterTextSplitter(
+    chunk_size=500,
+    chunk_overlap=50,
+    separators=_MARKDOWN_SEPARATORS,
+    keep_separator=True,      # 保留分隔符，保持文本可读性
+    is_separator_regex=False,
+)
 
-    for sentence in sentences:
-        if len(current) + len(sentence) <= chunk_size:
-            current = current + sentence if not current else current + " " + sentence
-        else:
-            if current:
-                chunks.append(current)
-                # 保留 overlap：从当前块尾部截取
-                current = current[-overlap:] + " " + sentence if overlap else sentence
-            else:
-                # 单句超长，强制截断
-                for start in range(0, len(sentence), chunk_size - overlap):
-                    chunks.append(sentence[start : start + chunk_size])
-                current = ""
 
-    if current:
-        chunks.append(current)
-
-    return [c for c in chunks if c.strip()]
+def chunk_text(text: str) -> list[str]:
+    """使用 RecursiveCharacterTextSplitter 切分文本，感知 Markdown 结构。"""
+    docs = _splitter.create_documents([text])
+    return [d.page_content for d in docs if d.page_content.strip()]
 
 
 # ── 知识库 CRUD ──────────────────────────────────────────────────────

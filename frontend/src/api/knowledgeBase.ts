@@ -35,4 +35,11 @@ export const knowledgeBaseApi = {
 
   deleteDocument: (kbId: string, docId: string) =>
     client.delete(`/knowledge-bases/${kbId}/documents/${docId}`),
+
+  getChunks: (kbId: string, docId: string) =>
+    client
+      .get<{ total: number; chunks: { chunk_index: number; content: string }[] }>(
+        `/knowledge-bases/${kbId}/documents/${docId}/chunks`
+      )
+      .then(r => r.data),
 }
