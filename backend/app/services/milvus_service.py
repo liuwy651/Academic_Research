@@ -139,3 +139,43 @@ def drop_collection(kb_id: uuid.UUID) -> None:
     if utility.has_collection(name):
         utility.drop_collection(name)
         logger.info("Milvus 集合已删除: %s", name)
+
+
+def search_vectors(
+    kb_id: uuid.UUID,
+    query_vector: list[float],
+    top_k: int = 20,
+    expr: str | None = None,
+) -> list[dict]:
+    """向量相似度搜索，返回 top_k 结果。
+
+    Returns:
+        list of dict: id, score (COSINE [0,1]), content, filename, chunk_index
+    """
+    _ensure_connected()
+    name = _collection_name(kb_id)
+    if not utility.has_collection(name):
+        return []
+
+    col = Collection(name)
+    col.load()
+
+    results = col.search(
+        data=[query_vector],
+        anns_field="vector",
+        param={"metric_type": "COSINE", "params": {"nprobe": 16}},
+        limit=top_k,
+        expr=expr,
+        output_fields=["id", "content", "filename", "chunk_index"],
+    )
+
+    return [
+        {
+            "id": hit.id,
+            "score": float(hit.score),
+            "content": hit.entity.get("content", ""),
+            "filename": hit.entity.get("filename", ""),
+            "chunk_index": hit.entity.get("chunk_index", 0),
+        }
+        for hit in results[0]
+    ]

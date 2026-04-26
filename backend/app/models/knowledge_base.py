@@ -44,3 +44,20 @@ class KBDocument(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False)
 
     knowledge_base: Mapped["KnowledgeBase"] = relationship("KnowledgeBase", back_populates="documents")
+
+
+class KBChunk(Base):
+    """PostgreSQL 端的文档切块存储，用于 pg_trgm 关键词搜索。
+
+    id 与 Milvus 中的 chunk id 完全一致（md5(doc_id_hex + "_" + chunk_index)），
+    作为向量召回与关键词召回结果在 RRF 融合时的去重 key。
+    """
+    __tablename__ = "kb_chunks"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    kb_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    doc_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)

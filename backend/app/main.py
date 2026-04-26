@@ -46,18 +46,8 @@ app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 
 @app.on_event("startup")
 async def startup_event() -> None:
-    from app.agents.tools.registry import registry
     from app.agents.graph import get_agent_graph
 
-    command = ["npx", "-y", "@modelcontextprotocol/server-filesystem"] + settings.MCP_FILESYSTEM_PATHS
-    logger.info("正在注册 MCP filesystem server，授权目录: %s", settings.MCP_FILESYSTEM_PATHS)
-    try:
-        count = await asyncio.to_thread(registry.register_mcp_server, "fs", command)
-        logger.info("MCP filesystem server 注册完成，共 %d 个工具", count)
-    except Exception as e:
-        logger.error("MCP filesystem server 注册失败（非致命，文件工具将不可用）: %s", e)
-
-    # MCP 注册完毕后构建 Agent 图，确保所有工具都已纳入
     try:
         graph = get_agent_graph()
         logger.info("Agent 图构建完成: %s", graph)
@@ -67,7 +57,4 @@ async def startup_event() -> None:
 
 @app.on_event("shutdown")
 async def shutdown_event() -> None:
-    from app.agents.tools.registry import registry
-
-    logger.info("正在关闭所有 MCP Server 连接…")
-    await asyncio.to_thread(registry.shutdown)
+    pass

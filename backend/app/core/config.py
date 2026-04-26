@@ -32,9 +32,14 @@ class Settings(BaseSettings):
     LLM_TITLE_MODEL: str = "qwen-turbo"  # 标题生成用轻量模型，避免 reasoning 模型耗尽 max_tokens
     LLM_MAX_TOKENS: int = 4096
     LLM_SYSTEM_PROMPT: str = "You are a helpful AI assistant."
-    LLM_ENABLE_THINKING: bool = True  # 仅 qwen3-* 等 thinking 模型支持，qwen-plus/turbo 不支持
     DASHSCOPE_API_KEY: str = ""
     DASHSCOPE_BASE_URL: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+
+    # Agent 模型（独立于聊天模型，可按角色单独调优）
+    # AGENT_ROUTER_MODEL：PrimaryRouter 使用带思考功能的模型，适合意图理解和直接回答
+    # AGENT_WORKER_MODEL：CS_Researcher / Math_Analyst 使用不带思考过程的模型，执行效率优先
+    AGENT_ROUTER_MODEL: str = "deepseek-r1"
+    AGENT_WORKER_MODEL: str = "qwen-plus"
 
     # Token management (S4)
     LLM_CONTEXT_WINDOW: int = 32000  # model's total context window in tokens

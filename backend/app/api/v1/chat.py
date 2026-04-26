@@ -14,7 +14,7 @@ from langchain_core.messages import AIMessage as LCAIMessage
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage as LCToolMessage
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.agents.graph import MCP_FS_AUTH, get_agent_graph
+from app.agents.graph import get_agent_graph
 from app.agents.tools.registry import registry
 from app.api.deps import get_current_user
 from app.core.config import settings
@@ -152,15 +152,22 @@ async def chat_stream(
     async def generate():
         # ── 构建 LangChain 消息列表（系统提示 + 历史 + 用户消息）──────────────
         now = datetime.now().strftime("%Y年%m月%d日 %H:%M")
-        has_fs = any(
-            s["function"]["name"].startswith("fs__")
-            for s in registry.get_all_tool_schemas()
-        )
         system_parts = [f"当前时间：{now}"]
         if settings.LLM_SYSTEM_PROMPT:
             system_parts.append(settings.LLM_SYSTEM_PROMPT)
-        if has_fs:
-            system_parts.append(MCP_FS_AUTH)
+
+        # ── RAG Tool：始终注入 search_knowledge_base，确保 Researcher 可用 ──
+        # kb_ids 显式指定时精确检索；否则自动从用户所有 KB 中选库。
+        # 工具始终存在，没有 KB 时工具会返回"未找到"，不影响其他功能。
+        from app.agents.tools.rag_search import KB_RAG_SEARCH_TOOL_SCHEMA, make_rag_handler
+        rag_handler = make_rag_handler(
+            user_id=current_user.id,
+            override_kb_ids=payload.kb_ids if payload.kb_ids else None,
+        )
+        extra_schemas: list[dict] = [KB_RAG_SEARCH_TOOL_SCHEMA]
+        extra_handlers: dict = {"search_knowledge_base": rag_handler}
+        # 知识库检索指引不注入全局 system prompt（避免 PrimaryRouter 看到矛盾指令）
+        # CS_Researcher 的 system prompt 已内置知识库检索职责
 
         lc_msgs: list = [SystemMessage(content="\n\n".join(system_parts))]
         for row in trimmed_history:
@@ -171,7 +178,7 @@ async def chat_stream(
                 lc_msgs.append(LCAIMessage(content=content))
         lc_msgs.append(HumanMessage(content=user_content_for_llm))
 
-        graph = get_agent_graph()
+        graph = get_agent_graph(extra_schemas=extra_schemas, extra_handlers=extra_handlers)
         full_content_parts: list[str] = []
         full_thinking_parts: list[str] = []
         collected_steps: list[dict] = []
@@ -225,6 +232,16 @@ async def chat_stream(
             _think_buf = ""
             return result
 
+        # ── PrimaryRouter 输出缓冲 ──────────────────────────────────────
+        # PrimaryRouter 路由时不应向前端输出任何内容（包括 JSON 工具调用块）。
+        # 仅当 PrimaryRouter 直接回答（next_node=FINISH）时才将缓冲内容推送给前端。
+        _pr_sse: list[str] = []      # 待推送的 SSE 字符串
+        _pr_content: list[str] = []  # 对应的纯文本（用于保存到数据库）
+        _pr_thinking: list[str] = [] # 对应的思考内容
+
+        def _pr_node(ev: dict) -> bool:
+            return ev.get("metadata", {}).get("langgraph_node") == "PrimaryRouter"
+
         try:
             async for event in graph.astream_events(
                 {"messages": lc_msgs},
@@ -241,11 +258,18 @@ async def chat_stream(
                     if chunk is None:
                         continue
 
-                    # Thinking 模型（如 qwen3-*）：思考内容在 reasoning_content 字段
+                    is_router = _pr_node(event)
+
+                    # Thinking 模型：思考内容在 reasoning_content 字段
                     rc: str = (getattr(chunk, "additional_kwargs", None) or {}).get("reasoning_content") or ""
                     if rc:
-                        full_thinking_parts.append(rc)
-                        yield f"data: {json.dumps({'type': 'thinking_chunk', 'content': rc})}\n\n"
+                        sse = f"data: {json.dumps({'type': 'thinking_chunk', 'content': rc})}\n\n"
+                        if is_router:
+                            _pr_sse.append(sse)
+                            _pr_thinking.append(rc)
+                        else:
+                            full_thinking_parts.append(rc)
+                            yield sse
 
                     content = chunk.content
                     deltas: list[str] = []
@@ -259,31 +283,58 @@ async def chat_stream(
                                     deltas.append(t)
                     for delta in deltas:
                         for kind, text in _process_delta(delta):
-                            if kind == "chunk":
-                                full_content_parts.append(text)
-                                yield f"data: {json.dumps({'type': 'chunk', 'content': text})}\n\n"
+                            sse = f"data: {json.dumps({'type': kind, 'content': text})}\n\n"
+                            if is_router:
+                                _pr_sse.append(sse)
+                                ((_pr_content if kind == "chunk" else _pr_thinking).append(text))
                             else:
-                                full_thinking_parts.append(text)
-                                yield f"data: {json.dumps({'type': 'thinking_chunk', 'content': text})}\n\n"
+                                if kind == "chunk":
+                                    full_content_parts.append(text)
+                                else:
+                                    full_thinking_parts.append(text)
+                                yield sse
 
                 # ── LLM 一轮结束，冲刷缓冲区 ─────────────────────────────
                 elif etype == "on_chat_model_end":
+                    is_router = _pr_node(event)
                     for kind, text in _flush_buf():
-                        if kind == "chunk":
-                            full_content_parts.append(text)
-                            yield f"data: {json.dumps({'type': 'chunk', 'content': text})}\n\n"
+                        sse = f"data: {json.dumps({'type': kind, 'content': text})}\n\n"
+                        if is_router:
+                            _pr_sse.append(sse)
+                            ((_pr_content if kind == "chunk" else _pr_thinking).append(text))
                         else:
-                            full_thinking_parts.append(text)
-                            yield f"data: {json.dumps({'type': 'thinking_chunk', 'content': text})}\n\n"
+                            if kind == "chunk":
+                                full_content_parts.append(text)
+                            else:
+                                full_thinking_parts.append(text)
+                            yield sse
+
+                # ── PrimaryRouter 节点结束：决定冲刷还是丢弃缓冲 ──────────
+                elif etype == "on_chain_end" and ename == "PrimaryRouter":
+                    node_out = data.get("output") or {}
+                    if isinstance(node_out, dict) and node_out.get("next_node", "FINISH") == "FINISH" and _pr_sse:
+                        full_content_parts.extend(_pr_content)
+                        full_thinking_parts.extend(_pr_thinking)
+                        for sse in _pr_sse:
+                            yield sse
+                    _pr_sse.clear()
+                    _pr_content.clear()
+                    _pr_thinking.clear()
 
                 # ── 工具开始执行 ──────────────────────────────────────────
                 elif etype == "on_tool_start":
+                    is_router = _pr_node(event)
                     tool_input = data.get("input", {})
                     collected_steps.append({"name": ename, "args": tool_input, "status": "running"})
-                    yield f"data: {json.dumps({'type': 'tool_start', 'name': ename, 'args': tool_input})}\n\n"
+                    sse = f"data: {json.dumps({'type': 'tool_start', 'name': ename, 'args': tool_input})}\n\n"
+                    if is_router:
+                        _pr_sse.append(sse)
+                    else:
+                        yield sse
 
                 # ── 工具执行完毕 ──────────────────────────────────────────
                 elif etype == "on_tool_end":
+                    is_router = _pr_node(event)
                     # LangGraph 1.x: output 是 ToolMessage 对象
                     output = data.get("output")
                     raw_text: str = (
@@ -292,7 +343,7 @@ async def chat_stream(
                         else str(output) if output is not None else ""
                     )
 
-                    # 图片 URL 作为 chunk 注入，保持文图顺序正确
+                    # 图片 URL 作为 chunk 注入（工具结果中的图片始终直接推送）
                     image_match = _IMAGE_RE.search(raw_text)
                     if image_match:
                         image_md = f"\n\n![]({image_match.group(1)})\n\n"
@@ -300,13 +351,16 @@ async def chat_stream(
                         yield f"data: {json.dumps({'type': 'chunk', 'content': image_md})}\n\n"
 
                     clean = _IMAGE_RE.sub("", raw_text).strip()
-                    # Update the matching running step to done
                     for step in reversed(collected_steps):
                         if step["name"] == ename and step["status"] == "running":
                             step["result"] = clean[:800]
                             step["status"] = "done"
                             break
-                    yield f"data: {json.dumps({'type': 'tool_result', 'name': ename, 'content': clean[:800]})}\n\n"
+                    sse = f"data: {json.dumps({'type': 'tool_result', 'name': ename, 'content': clean[:800]})}\n\n"
+                    if is_router:
+                        _pr_sse.append(sse)
+                    else:
+                        yield sse
 
             # ── 保存助手消息 ──────────────────────────────────────────────
             full_content = "".join(full_content_parts)

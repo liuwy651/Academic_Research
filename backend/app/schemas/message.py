@@ -10,6 +10,8 @@ class ChatRequest(BaseModel):
     content: str
     parent_id: uuid.UUID | None = None
     file_ids: list[uuid.UUID] = []
+    kb_ids: list[uuid.UUID] = []    # 显式指定 KB（非空时跳过自动选库）
+    auto_kb: bool = False           # True = 从用户所有 KB 中自动选库
 
     @field_validator("content")
     @classmethod

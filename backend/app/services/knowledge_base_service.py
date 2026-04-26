@@ -1,14 +1,15 @@
 """知识库业务逻辑：CRUD + 后台文档处理流水线。"""
+import hashlib
 import logging
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, insert, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.knowledge_base import KBDocument, KnowledgeBase
+from app.models.knowledge_base import KBChunk, KBDocument, KnowledgeBase
 
 logger = logging.getLogger(__name__)
 
@@ -100,6 +101,8 @@ async def delete_kb(db: AsyncSession, user_id: uuid.UUID, kb_id: uuid.UUID) -> N
     import asyncio
     from app.services import milvus_service
     await asyncio.to_thread(milvus_service.drop_collection, kb.id)
+    # 删除 PostgreSQL 端的 chunk 记录
+    await db.execute(delete(KBChunk).where(KBChunk.kb_id == kb_id))
     # 软删除 KB（级联删除 kb_documents 记录）
     kb.deleted_at = datetime.now(timezone.utc)
     await db.commit()
@@ -165,6 +168,8 @@ async def delete_document(
     import asyncio
     from app.services import milvus_service
     await asyncio.to_thread(milvus_service.delete_doc_chunks, kb_id, doc.id)
+    # 同步删除 PostgreSQL 端的 chunk 记录
+    await db.execute(delete(KBChunk).where(KBChunk.doc_id == doc.id.hex))
 
     await db.delete(doc)
     await db.commit()
@@ -207,8 +212,9 @@ async def process_document(
     filename: str,
     file_type: str,
 ) -> None:
-    """后台文档处理流水线：DocMind → 切块 → 向量化 → Milvus。"""
+    """后台文档处理流水线：DocMind → 切块 → 向量化 → Milvus + PostgreSQL 双写。"""
     import asyncio
+    from app.core.database import AsyncSessionLocal
     from app.services import docmind_service, embedding_service, milvus_service
 
     logger.info("开始处理文档: doc_id=%s filename=%s", doc_id, filename)
@@ -241,6 +247,24 @@ async def process_document(
             milvus_service.insert_chunks,
             kb_id, doc_id, filename, chunks, embeddings,
         )
+
+        # ── 双写 PostgreSQL kb_chunks（关键词搜索用）─────────────────
+        chunk_rows = [
+            {
+                "id": hashlib.md5(f"{doc_id.hex}_{i}".encode()).hexdigest(),
+                "kb_id": kb_id,
+                "doc_id": doc_id.hex,
+                "filename": filename[:255],
+                "chunk_index": i,
+                "content": chunks[i],
+                "created_at": datetime.now(timezone.utc),
+            }
+            for i in range(len(chunks))
+        ]
+        async with AsyncSessionLocal() as session:
+            await session.execute(insert(KBChunk), chunk_rows)
+            await session.commit()
+        logger.info("PostgreSQL chunks 写入完成: doc_id=%s chunks=%d", doc_id, len(chunks))
 
         await _update_doc_status(doc_id, "completed", chunk_count=len(chunks))
         logger.info("文档处理完成: doc_id=%s", doc_id)

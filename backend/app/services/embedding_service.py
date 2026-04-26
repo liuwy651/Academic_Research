@@ -33,3 +33,11 @@ async def encode_batch(texts: list[str]) -> list[list[float]]:
         logger.debug("Embedding 完成批次 %d/%d，共 %d 条", i // batch_size + 1, -(-len(texts) // batch_size), len(batch))
 
     return all_vectors
+
+
+def is_cjk_query(text: str, threshold: float = 0.3) -> bool:
+    """判断文本是否以 CJK 字符为主，用于跨语言路径决策。"""
+    if not text:
+        return False
+    cjk_count = sum(1 for c in text if '一' <= c <= '鿿')
+    return cjk_count / len(text) >= threshold
