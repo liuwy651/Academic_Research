@@ -8,27 +8,96 @@ html, body, #root {
   margin: 0;
 }
 
+/* ── Theme Colors ──────────────────────────────────────────────────── */
+:root {
+  /* Light theme (default) */
+  --bg-primary: #ffffff;
+  --bg-secondary: #f5f5f5;
+  --bg-tertiary: #efefef;
+  --text-primary: #0a0a0a;
+  --text-secondary: #404040;
+  --text-tertiary: #707070;
+  --text-muted: #999999;
+  --border-color: rgba(0, 0, 0, 0.1);
+  --border-subtle: rgba(0, 0, 0, 0.05);
+  --hover-bg: rgba(0, 0, 0, 0.05);
+  --active-bg: rgba(0, 0, 0, 0.1);
+  --cursor-color: #8b5cf6;
+  --icon-secondary: #999999;
+  --input-bg: #ffffff;
+  --input-border: rgba(0, 0, 0, 0.15);
+}
+
+html.dark {
+  /* Dark theme */
+  --bg-primary: #0a0a0a;
+  --bg-secondary: #111111;
+  --bg-tertiary: #1a1a1a;
+  --text-primary: #f5f5f5;
+  --text-secondary: #d4d4d4;
+  --text-tertiary: #a0a0a0;
+  --text-muted: #525252;
+  --border-color: rgba(255, 255, 255, 0.06);
+  --border-subtle: rgba(255, 255, 255, 0.03);
+  --hover-bg: rgba(255, 255, 255, 0.08);
+  --active-bg: rgba(255, 255, 255, 0.12);
+  --cursor-color: #8b5cf6;
+  --icon-secondary: #404040;
+  --input-bg: #1a1a1a;
+  --input-border: rgba(255, 255, 255, 0.1);
+}
+
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  background: #0a0a0a;
-  color: #f5f5f5;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  transition: background-color 0.3s, color 0.3s;
 }
 
 /* ── Thin scrollbar ─────────────────────────────────────────────────── */
-::-webkit-scrollbar          { width: 4px; height: 4px; }
-::-webkit-scrollbar-track    { background: transparent; }
-::-webkit-scrollbar-thumb    { background: rgba(255,255,255,0.08); border-radius: 4px; }
-::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.14); }
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--text-tertiary);
+  opacity: 0.3;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  opacity: 0.5;
+}
 
 /* ── Selection ──────────────────────────────────────────────────────── */
-::selection { background: rgba(139,92,246,0.28); }
+::selection {
+  background: rgba(139, 92, 246, 0.28);
+}
 
-/* ── KaTeX dark-theme overrides ────────────────────────────────────── */
-.katex { color: #e2e2e2; font-size: 1em; }
-.katex-display { overflow-x: auto; overflow-y: hidden; padding: 6px 0; }
-.katex-display > .katex { background: #111; border-radius: 6px; padding: 10px 14px; }
+/* ── KaTeX theme overrides ─────────────────────────────────────────── */
+.katex {
+  color: var(--text-primary);
+  font-size: 1em;
+}
+
+.katex-display {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 6px 0;
+}
+
+.katex-display > .katex {
+  background: var(--bg-tertiary);
+  border-radius: 6px;
+  padding: 10px 14px;
+}
 
 /* ── Streaming cursor ───────────────────────────────────────────────── */
 @keyframes blink {

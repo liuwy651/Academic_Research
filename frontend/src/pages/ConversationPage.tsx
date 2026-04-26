@@ -9,6 +9,8 @@ import rehypeKatex from 'rehype-katex'
 import 'katex/dist/katex.min.css'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
+import { materialLight } from 'react-syntax-highlighter/dist/esm/styles/prism'
+import { useThemeStore } from '../store/themeStore'
 import { useAuthStore } from '../store/authStore'
 import { useConversationStore } from '../store/conversationStore'
 import { conversationsApi } from '../api/conversations'
@@ -179,6 +181,8 @@ export default function ConversationPage() {
       parent_id: null,
       summary: null,
       context_tokens: null,
+      thinking: null,
+      tool_steps: null,
       files: attachedFiles,
     }
     setMessages(prev => [...prev, userMsg])
@@ -315,9 +319,9 @@ export default function ConversationPage() {
   }
 
   return (
-    <div className="flex h-full overflow-hidden">
+    <div className="flex h-full overflow-hidden" style={{ backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)' }}>
       {/* ── Main chat column ── */}
-      <div className="flex-1 flex flex-col overflow-hidden bg-[#0a0a0a] min-w-0">
+      <div className="flex-1 flex flex-col overflow-hidden min-w-0" style={{ backgroundColor: 'var(--bg-primary)' }}>
         <ConversationHeader
           conversationId={id!}
           showTree={showTree}
@@ -334,12 +338,12 @@ export default function ConversationPage() {
           </div>
         </div>
 
-        <div className="flex-shrink-0 border-t border-white/[0.06] bg-[#0a0a0a] px-4 py-4">
+        <div className="flex-shrink-0 px-4 py-4" style={{ borderTop: `1px solid var(--border-color)`, backgroundColor: 'var(--bg-primary)' }}>
           <div className="max-w-3xl mx-auto">
             {tokenStats && (
-              <div className={`flex items-center gap-1.5 mb-2 text-[10px] ${
-                tokenStats.truncated ? 'text-amber-500/70' : 'text-[#2e2e2e]'
-              }`}>
+              <div className="flex items-center gap-1.5 mb-2 text-[10px]" style={{
+                color: tokenStats.truncated ? '#f59e0b' : 'var(--text-muted)'
+              }}>
                 {tokenStats.truncated && <span>⚠</span>}
                 <span>
                   {tokenStats.truncated
@@ -357,8 +361,10 @@ export default function ConversationPage() {
               onChange={handleFileSelect}
             />
 
-            <div className="bg-[#111111] border border-white/[0.08] rounded-2xl px-4 py-3
-                            focus-within:border-white/[0.16] transition-colors">
+            <div className="rounded-2xl px-4 py-3 transition-colors" style={{
+              backgroundColor: 'var(--bg-secondary)',
+              border: `1px solid var(--border-color)`
+            }}>
               {pendingFiles.length > 0 && (
                 <div className="flex flex-wrap gap-1.5 mb-2.5">
                   {pendingFiles.map(pf => (
@@ -372,8 +378,16 @@ export default function ConversationPage() {
                   disabled={isGenerating}
                   title="Attach PDF or Markdown"
                   className="flex-shrink-0 w-7 h-7 flex items-center justify-center
-                             text-[#3a3a3a] hover:text-violet-400 disabled:opacity-30
-                             transition-colors cursor-pointer rounded-md hover:bg-white/[0.04]"
+                             disabled:opacity-30 transition-colors cursor-pointer rounded-md"
+                  style={{ color: 'var(--text-tertiary)' }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.color = '#bb86fc'
+                    e.currentTarget.style.backgroundColor = 'var(--hover-bg)'
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.color = 'var(--text-tertiary)'
+                    e.currentTarget.style.backgroundColor = 'transparent'
+                  }}
                 >
                   <Paperclip className="w-4 h-4" />
                 </button>
@@ -385,33 +399,40 @@ export default function ConversationPage() {
                   placeholder="Message…"
                   disabled={isGenerating}
                   rows={1}
-                  className="flex-1 bg-transparent text-sm text-[#f0f0f0] placeholder-[#3a3a3a]
-                             resize-none outline-none min-h-[22px] max-h-[160px] leading-[22px]
-                             disabled:opacity-50"
+                  className="flex-1 text-sm resize-none outline-none min-h-[22px] max-h-[160px] leading-[22px] disabled:opacity-50"
+                  style={{
+                    backgroundColor: 'transparent',
+                    color: 'var(--text-primary)',
+                    borderColor: 'transparent'
+                  }}
                 />
                 {isGenerating ? (
                   <button
                     onClick={stopGenerating}
                     title="Stop generating"
-                    className="flex-shrink-0 w-8 h-8 bg-[#2a2a2a] hover:bg-[#383838]
-                               rounded-lg flex items-center justify-center transition-colors cursor-pointer"
+                    className="flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center transition-colors cursor-pointer text-white"
+                    style={{ backgroundColor: 'var(--text-muted)' }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.backgroundColor = 'var(--text-secondary)'
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.backgroundColor = 'var(--text-muted)'
+                    }}
                   >
-                    <Square className="w-3.5 h-3.5 text-white fill-white" />
+                    <Square className="w-3.5 h-3.5 fill-current" />
                   </button>
                 ) : (
                   <button
                     onClick={sendMessage}
                     disabled={!input.trim()}
-                    className="flex-shrink-0 w-8 h-8 bg-violet-600 hover:bg-violet-500
-                               disabled:opacity-25 disabled:cursor-not-allowed
-                               rounded-lg flex items-center justify-center transition-colors cursor-pointer"
+                    className="flex-shrink-0 w-8 h-8 bg-violet-600 hover:bg-violet-500 disabled:opacity-25 disabled:cursor-not-allowed rounded-lg flex items-center justify-center transition-colors cursor-pointer text-white"
                   >
-                    <ArrowUp className="w-4 h-4 text-white" />
+                    <ArrowUp className="w-4 h-4" />
                   </button>
                 )}
               </div>
             </div>
-            <p className="text-center text-[10px] text-[#282828] mt-2">
+            <p className="text-center text-[10px] mt-2" style={{ color: 'var(--text-muted)' }}>
               Enter to send · Shift+Enter for new line · PDF/Markdown supported
             </p>
           </div>
@@ -421,8 +442,8 @@ export default function ConversationPage() {
       {/* ── Right tree sidebar ── */}
       {showTree && id && (
         <div
-          className="flex-shrink-0 flex relative border-l border-white/[0.06] bg-[#0e0e0e] overflow-hidden"
-          style={{ width: treeWidth }}
+          className="flex-shrink-0 flex relative overflow-hidden"
+          style={{ width: treeWidth, borderLeft: `1px solid var(--border-color)`, backgroundColor: 'var(--bg-secondary)' }}
         >
           {/* Drag handle on left edge */}
           <div
@@ -461,19 +482,34 @@ function ConversationHeader({
   })
 
   return (
-    <div className="flex items-center gap-2.5 px-5 py-3 border-b border-white/[0.06] bg-[#0e0e0e] flex-shrink-0">
-      <MessageSquare className="w-4 h-4 text-[#3a3a3a] flex-shrink-0" />
-      <span className="flex-1 text-sm font-medium text-[#c0c0c0] truncate">
+    <div className="flex items-center gap-2.5 px-5 py-3 flex-shrink-0" style={{
+      borderBottom: `1px solid var(--border-color)`,
+      backgroundColor: 'var(--bg-secondary)'
+    }}>
+      <MessageSquare className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--icon-secondary)' }} />
+      <span className="flex-1 text-sm font-medium truncate" style={{ color: 'var(--text-secondary)' }}>
         {conv?.title ?? '…'}
       </span>
       <button
         onClick={onToggleTree}
         title="Toggle tree view"
-        className={`flex items-center justify-center w-7 h-7 rounded-md transition-colors cursor-pointer
-          ${showTree
-            ? 'bg-violet-600/20 text-violet-400'
-            : 'text-[#3a3a3a] hover:text-white/50 hover:bg-white/[0.04]'
-          }`}
+        className="flex items-center justify-center w-7 h-7 rounded-md transition-colors cursor-pointer"
+        style={{
+          backgroundColor: showTree ? 'rgba(139, 92, 246, 0.2)' : 'transparent',
+          color: showTree ? '#bb86fc' : 'var(--icon-secondary)'
+        }}
+        onMouseEnter={(e) => {
+          if (!showTree) {
+            e.currentTarget.style.color = 'var(--text-tertiary)'
+            e.currentTarget.style.backgroundColor = 'var(--hover-bg)'
+          }
+        }}
+        onMouseLeave={(e) => {
+          if (!showTree) {
+            e.currentTarget.style.color = 'var(--icon-secondary)'
+            e.currentTarget.style.backgroundColor = 'transparent'
+          }
+        }}
       >
         <GitBranch className="w-3.5 h-3.5" />
       </button>
@@ -484,13 +520,15 @@ function ConversationHeader({
 function EmptyState() {
   return (
     <div className="flex flex-col items-center justify-center gap-4 py-24 text-center">
-      <div className="w-12 h-12 bg-white/[0.03] border border-white/[0.06] rounded-2xl
-                      flex items-center justify-center">
+      <div className="w-12 h-12 rounded-2xl flex items-center justify-center" style={{
+        backgroundColor: 'var(--bg-tertiary)',
+        border: `1px solid var(--border-color)`
+      }}>
         <Bot className="w-5 h-5 text-violet-500" />
       </div>
       <div className="space-y-1">
-        <p className="text-sm font-medium text-[#8a8a8a]">How can I help you today?</p>
-        <p className="text-xs text-[#3a3a3a]">Send a message to start the conversation</p>
+        <p className="text-sm font-medium" style={{ color: 'var(--text-tertiary)' }}>How can I help you today?</p>
+        <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Send a message to start the conversation</p>
       </div>
     </div>
   )
@@ -531,65 +569,74 @@ function FileChip({ pf, onRemove }: { pf: PendingFile; onRemove: (id: string) =>
   )
 }
 
-// ── Markdown renderer config ───────────────────────────────────────────────────
+// ── Markdown components factory ───────────────────────────────────────────────
 
-const mdComponents = {
-  pre({ children }: any) { return <>{children}</> },
-  code({ className, children, ...props }: any) {
-    const match = /language-(\w+)/.exec(className || '')
-    return match ? (
-      <SyntaxHighlighter
-        PreTag="div"
-        language={match[1]}
-        style={vscDarkPlus}
-        customStyle={{ background: '#0d0d0d', borderRadius: '8px', padding: '12px 14px', margin: '6px 0', fontSize: '12px', lineHeight: '1.6' }}
-      >
-        {String(children).replace(/\n$/, '')}
-      </SyntaxHighlighter>
-    ) : (
-      <code className="bg-[#1e1e1e] text-violet-300 px-1.5 py-0.5 rounded text-[0.85em] font-mono" {...props}>
-        {children}
-      </code>
-    )
-  },
-  p({ children }: any) { return <p className="mb-2 last:mb-0 leading-relaxed">{children}</p> },
-  h1({ children }: any) { return <h1 className="text-base font-semibold mb-2 mt-3 first:mt-0 text-[#e8e8e8]">{children}</h1> },
-  h2({ children }: any) { return <h2 className="text-sm font-semibold mb-2 mt-3 first:mt-0 text-[#e0e0e0]">{children}</h2> },
-  h3({ children }: any) { return <h3 className="text-sm font-medium mb-1 mt-2 first:mt-0">{children}</h3> },
-  ul({ children }: any) { return <ul className="list-disc pl-5 mb-2 space-y-0.5">{children}</ul> },
-  ol({ children }: any) { return <ol className="list-decimal pl-5 mb-2 space-y-0.5">{children}</ol> },
-  li({ children }: any) { return <li className="leading-relaxed">{children}</li> },
-  blockquote({ children }: any) {
-    return (
-      <blockquote className="border-l-2 border-violet-500/40 pl-3 my-2 text-[#8a8a8a] italic">
-        {children}
-      </blockquote>
-    )
-  },
-  a({ href, children }: any) {
-    return (
-      <a href={href} target="_blank" rel="noopener noreferrer"
-         className="text-violet-400 hover:text-violet-300 underline underline-offset-2 transition-colors">
-        {children}
-      </a>
-    )
-  },
-  table({ children }: any) {
-    return <div className="overflow-x-auto my-2"><table className="text-xs border-collapse w-full">{children}</table></div>
-  },
-  thead({ children }: any) { return <thead className="border-b border-white/[0.1]">{children}</thead> },
-  th({ children }: any) { return <th className="text-left px-3 py-1.5 font-medium text-[#a0a0a0]">{children}</th> },
-  tr({ children }: any) { return <tr className="border-b border-white/[0.04]">{children}</tr> },
-  td({ children }: any) { return <td className="px-3 py-1.5">{children}</td> },
-  hr() { return <hr className="border-white/[0.08] my-3" /> },
-  strong({ children }: any) { return <strong className="font-semibold text-[#e8e8e8]">{children}</strong> },
-  em({ children }: any) { return <em className="italic text-[#c8c8c8]">{children}</em> },
-  img({ src, alt }: any) { return <ZoomableImage src={src ?? ''} alt={alt} /> },
+function createMdComponents(effectiveTheme: 'light' | 'dark') {
+  const style = effectiveTheme === 'dark' ? vscDarkPlus : materialLight
+  const bgColor = effectiveTheme === 'dark' ? '#0d0d0d' : '#f5f5f5'
+  const inlineBg = effectiveTheme === 'dark' ? '#1e1e1e' : '#f0f0f0'
+  const inlineColor = effectiveTheme === 'dark' ? '#bb86fc' : '#6c4aa8'
+
+  return {
+    pre({ children }: any) { return <>{children}</> },
+    code({ className, children, ...props }: any) {
+      const match = /language-(\w+)/.exec(className || '')
+      return match ? (
+        <SyntaxHighlighter
+          PreTag="div"
+          language={match[1]}
+          style={style}
+          customStyle={{ background: bgColor, borderRadius: '8px', padding: '12px 14px', margin: '6px 0', fontSize: '12px', lineHeight: '1.6' }}
+        >
+          {String(children).replace(/\n$/, '')}
+        </SyntaxHighlighter>
+      ) : (
+        <code className="px-1.5 py-0.5 rounded text-[0.85em] font-mono" style={{ backgroundColor: inlineBg, color: inlineColor }} {...props}>
+          {children}
+        </code>
+      )
+    },
+    p({ children }: any) { return <p className="mb-2 last:mb-0 leading-relaxed">{children}</p> },
+    h1({ children }: any) { return <h1 className="text-base font-semibold mb-2 mt-3 first:mt-0" style={{ color: 'var(--text-primary)' }}>{children}</h1> },
+    h2({ children }: any) { return <h2 className="text-sm font-semibold mb-2 mt-3 first:mt-0" style={{ color: 'var(--text-primary)' }}>{children}</h2> },
+    h3({ children }: any) { return <h3 className="text-sm font-medium mb-1 mt-2 first:mt-0" style={{ color: 'var(--text-primary)' }}>{children}</h3> },
+    ul({ children }: any) { return <ul className="list-disc pl-5 mb-2 space-y-0.5">{children}</ul> },
+    ol({ children }: any) { return <ol className="list-decimal pl-5 mb-2 space-y-0.5">{children}</ol> },
+    li({ children }: any) { return <li className="leading-relaxed">{children}</li> },
+    blockquote({ children }: any) {
+      return (
+        <blockquote className="border-l-2 border-violet-500/40 pl-3 my-2 italic" style={{ color: 'var(--text-tertiary)' }}>
+          {children}
+        </blockquote>
+      )
+    },
+    a({ href, children }: any) {
+      return (
+        <a href={href} target="_blank" rel="noopener noreferrer"
+           className="text-violet-500 hover:text-violet-600 underline underline-offset-2 transition-colors">
+          {children}
+        </a>
+      )
+    },
+    table({ children }: any) {
+      return <div className="overflow-x-auto my-2"><table className="text-xs border-collapse w-full">{children}</table></div>
+    },
+    thead({ children }: any) { return <thead className="border-b" style={{ borderColor: 'var(--border-color)' }}>{children}</thead> },
+    th({ children }: any) { return <th className="text-left px-3 py-1.5 font-medium" style={{ color: 'var(--text-secondary)' }}>{children}</th> },
+    tr({ children }: any) { return <tr className="border-b" style={{ borderColor: 'var(--border-subtle)' }}>{children}</tr> },
+    td({ children }: any) { return <td className="px-3 py-1.5">{children}</td> },
+    hr() { return <hr className="my-3" style={{ borderColor: 'var(--border-color)' }} /> },
+    strong({ children }: any) { return <strong className="font-semibold" style={{ color: 'var(--text-primary)' }}>{children}</strong> },
+    em({ children }: any) { return <em className="italic" style={{ color: 'var(--text-secondary)' }}>{children}</em> },
+    img({ src, alt }: any) { return <ZoomableImage src={src ?? ''} alt={alt} /> },
+  }
 }
 
 // ── Message bubble ─────────────────────────────────────────────────────────────
 
 function MessageBubble({ message }: { message: LocalMessage }) {
+  const effectiveTheme = useThemeStore(s => s.getEffectiveTheme())
+  const mdComponents = createMdComponents(effectiveTheme)
   const isUser = message.role === 'user'
   const streaming = !!message.streaming
 
@@ -628,13 +675,18 @@ function MessageBubble({ message }: { message: LocalMessage }) {
 
   return (
     <div className="flex gap-3 items-start">
-      <div className="w-7 h-7 bg-[#1a1a1a] border border-white/[0.08] rounded-lg
-                      flex items-center justify-center flex-shrink-0 mt-0.5">
+      <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5" style={{
+        backgroundColor: 'var(--bg-tertiary)',
+        border: `1px solid var(--border-color)`
+      }}>
         <Bot className="w-3.5 h-3.5 text-violet-400" />
       </div>
 
       <div className="flex-1 min-w-0">
-        <div className="bg-[#141414] border border-white/[0.06] rounded-2xl rounded-tl-sm px-4 py-3">
+        <div className="rounded-2xl rounded-tl-sm px-4 py-3" style={{
+          backgroundColor: 'var(--bg-tertiary)',
+          border: `1px solid var(--border-color)`
+        }}>
           {(message.thinking || !!message.steps?.length) && (
             <ReasoningPanel
               thinking={message.thinking ?? undefined}
@@ -644,7 +696,7 @@ function MessageBubble({ message }: { message: LocalMessage }) {
             />
           )}
 
-          <div className="text-sm text-[#d4d4d4] leading-relaxed">
+          <div className="text-sm leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
             {message.content ? (
               <ReactMarkdown
                 remarkPlugins={[remarkGfm, remarkMath]}
@@ -654,7 +706,7 @@ function MessageBubble({ message }: { message: LocalMessage }) {
                 {message.content}
               </ReactMarkdown>
             ) : (
-              !streaming && !message.thinking && <span className="text-[#4a4a4a]">…</span>
+              !streaming && !message.thinking && <span style={{ color: 'var(--text-muted)' }}>…</span>
             )}
             {streaming && !!message.thinkingDone && <span className="cursor-blink" />}
           </div>
@@ -705,33 +757,44 @@ function ToolStepRow({ step }: { step: ToolStep }) {
       <button
         onClick={() => step.result && setOpen(o => !o)}
         disabled={!step.result}
-        className="flex items-center gap-2 w-full text-left px-2 py-1 rounded-md
-                   hover:bg-white/[0.04] transition-colors disabled:cursor-default"
+        className="flex items-center gap-2 w-full text-left px-2 py-1 rounded-md transition-colors disabled:cursor-default"
+        style={{ backgroundColor: 'transparent' }}
+        onMouseEnter={(e) => {
+          if (step.result) {
+            e.currentTarget.style.backgroundColor = 'var(--hover-bg)'
+          }
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.backgroundColor = 'transparent'
+        }}
       >
         {isRunning
           ? <Loader2 className="w-3 h-3 text-violet-400 animate-spin flex-shrink-0" />
           : <Icon className="w-3 h-3 text-violet-400/50 flex-shrink-0" />
         }
-        <span className={`text-[11px] font-medium flex-shrink-0 ${isRunning ? 'text-violet-300/80' : 'text-[#505050]'}`}>
+        <span className="text-[11px] font-medium flex-shrink-0" style={{
+          color: isRunning ? '#e9d5ff' : 'var(--text-muted)'
+        }}>
           {label}
         </span>
         {summary && (
-          <span className="text-[11px] text-[#363636] truncate">{summary}</span>
+          <span className="text-[11px] truncate" style={{ color: 'var(--text-muted)' }}>{summary}</span>
         )}
         {step.result && (
           <span className="ml-auto flex-shrink-0">
             {open
-              ? <ChevronDown className="w-3 h-3 text-[#383838]" />
-              : <ChevronRight className="w-3 h-3 text-[#383838]" />
+              ? <ChevronDown className="w-3 h-3" style={{ color: 'var(--text-muted)' }} />
+              : <ChevronRight className="w-3 h-3" style={{ color: 'var(--text-muted)' }} />
             }
           </span>
         )}
       </button>
       {open && step.result && (
-        <pre className="mx-2 mt-0.5 mb-1 text-[10px] text-[#646464] bg-[#0a0a0a]
-                        border border-white/[0.05] rounded-lg px-3 py-2
-                        overflow-x-auto whitespace-pre-wrap break-words
-                        max-h-48 overflow-y-auto leading-relaxed">
+        <pre className="mx-2 mt-0.5 mb-1 text-[10px] rounded-lg px-3 py-2 overflow-x-auto whitespace-pre-wrap break-words max-h-48 overflow-y-auto leading-relaxed" style={{
+          color: 'var(--text-tertiary)',
+          backgroundColor: 'var(--bg-primary)',
+          border: `1px solid var(--border-subtle)`
+        }}>
           {step.result}
         </pre>
       )}
@@ -752,6 +815,8 @@ function ReasoningPanel({
 }) {
   const [open, setOpen] = useState(false)
   const revealedRef = useRef(false)
+  const effectiveTheme = useThemeStore(s => s.getEffectiveTheme())
+  const thinkingTextColor = effectiveTheme === 'dark' ? 'text-amber-100/50' : 'text-amber-800/60'
 
   // Expand when thinking finishes for the first time
   useEffect(() => {
@@ -785,7 +850,7 @@ function ReasoningPanel({
         </div>
         {thinking && (
           <div className="px-3 pb-2.5 max-h-48 overflow-y-auto">
-            <p className="text-[11px] font-mono text-amber-100/20 leading-relaxed whitespace-pre-wrap break-words">
+            <p className={`text-[11px] font-mono ${thinkingTextColor} leading-relaxed whitespace-pre-wrap break-words`}>
               {thinking}
             </p>
           </div>
@@ -801,35 +866,44 @@ function ReasoningPanel({
   const toolCount = steps?.length ?? 0
 
   return (
-    <div className="mb-3 rounded-xl border border-white/[0.07] bg-[#0c0c0a] overflow-hidden">
+    <div className="mb-3 rounded-xl overflow-hidden" style={{
+      backgroundColor: 'var(--bg-tertiary)',
+      border: `1px solid var(--border-color)`
+    }}>
       {/* Header */}
       <button
         onClick={() => setOpen(o => !o)}
-        className="flex items-center gap-2 w-full px-3 py-2 text-left
-                   hover:bg-white/[0.03] transition-colors"
+        className="flex items-center gap-2 w-full px-3 py-2 text-left transition-colors"
+        style={{ backgroundColor: 'transparent' }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.backgroundColor = 'var(--hover-bg)'
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.backgroundColor = 'transparent'
+        }}
       >
         <Sparkles className="w-3 h-3 text-amber-600/40 flex-shrink-0" />
-        <span className="text-[11px] font-medium text-[#3a3828]">推理过程</span>
-        <span className="text-[10px] text-[#2a2820] font-mono">
+        <span className="text-[11px] font-medium" style={{ color: 'var(--text-muted)' }}>推理过程</span>
+        <span className="text-[10px] font-mono" style={{ color: 'var(--text-muted)' }}>
           {thinkingLen > 0 && `${thinkingLen}字`}
           {thinkingLen > 0 && toolCount > 0 && ' · '}
           {toolCount > 0 && `${toolCount}个工具`}
         </span>
         <span className="ml-auto flex-shrink-0">
           {open
-            ? <ChevronDown className="w-3 h-3 text-[#2a2820]" />
-            : <ChevronRight className="w-3 h-3 text-[#2a2820]" />
+            ? <ChevronDown className="w-3 h-3" style={{ color: 'var(--text-muted)' }} />
+            : <ChevronRight className="w-3 h-3" style={{ color: 'var(--text-muted)' }} />
           }
         </span>
       </button>
 
       {open && (
-        <div className="border-t border-white/[0.05]">
+        <div style={{ borderTop: `1px solid var(--border-subtle)` }}>
           {/* Thinking text */}
           {thinking && (
-            <div className={`px-3 py-2.5 ${hasSteps ? 'border-b border-white/[0.04]' : ''}`}>
-              <p className="text-[11px] font-mono text-amber-100/20
-                            leading-relaxed whitespace-pre-wrap break-words">
+            <div className="px-3 py-2.5" style={{ borderBottom: hasSteps ? `1px solid var(--border-subtle)` : 'none' }}>
+              <p className={`text-[11px] font-mono ${thinkingTextColor}
+                            leading-relaxed whitespace-pre-wrap break-words`}>
                 {thinking}
               </p>
             </div>

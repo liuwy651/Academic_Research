@@ -32,7 +32,7 @@ export default function RegisterPage() {
   }
 
   return (
-    <div className="min-h-full flex items-center justify-center bg-[#0a0a0a] px-4">
+    <div className="min-h-full flex items-center justify-center px-4" style={{ backgroundColor: 'var(--bg-primary)' }}>
       <div className="w-full max-w-sm">
 
         {/* Logo */}
@@ -41,77 +41,112 @@ export default function RegisterPage() {
             <Bot className="w-5 h-5 text-white" />
           </div>
           <div className="text-center">
-            <h1 className="text-lg font-semibold text-white">Create an account</h1>
-            <p className="text-sm text-[#6b6b6b] mt-0.5">Get started for free</p>
+            <h1 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>Create an account</h1>
+            <p className="text-sm mt-0.5" style={{ color: 'var(--text-tertiary)' }}>Get started for free</p>
           </div>
         </div>
 
         {/* Card */}
-        <div className="bg-[#111111] border border-white/[0.08] rounded-xl p-6 space-y-4">
+        <div className="border rounded-xl p-6 space-y-4" style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-color)' }}>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-1.5">
-              <label className="block text-xs font-medium text-[#a3a3a3]">
-                Full Name <span className="text-[#3f3f3f]">(optional)</span>
+              <label className="block text-xs font-medium" style={{ color: 'var(--text-tertiary)' }}>
+                Full Name <span style={{ color: 'var(--text-muted)' }}>(optional)</span>
               </label>
               <input
                 type="text"
                 value={form.full_name}
                 onChange={e => setForm(f => ({ ...f, full_name: e.target.value }))}
                 placeholder="Jane Smith"
-                className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-2.5 text-sm text-white
-                           placeholder-[#3f3f3f] outline-none transition-colors
-                           focus:border-violet-500/50 focus:ring-1 focus:ring-violet-500/30"
+                className="w-full rounded-lg px-3 py-2.5 text-sm outline-none transition-colors"
+                style={{
+                  backgroundColor: 'var(--input-bg)',
+                  color: 'var(--text-primary)',
+                  borderColor: 'var(--input-border)',
+                  border: `1px solid var(--input-border)`,
+                }}
+                onFocus={(e) => {
+                  e.currentTarget.style.borderColor = '#8b5cf6'
+                  e.currentTarget.style.boxShadow = '0 0 0 1px rgba(139, 92, 246, 0.3)'
+                }}
+                onBlur={(e) => {
+                  e.currentTarget.style.borderColor = 'var(--input-border)'
+                  e.currentTarget.style.boxShadow = 'none'
+                }}
               />
             </div>
 
             <div className="space-y-1.5">
-              <label className="block text-xs font-medium text-[#a3a3a3]">Email</label>
+              <label className="block text-xs font-medium" style={{ color: 'var(--text-tertiary)' }}>Email</label>
               <input
                 type="email"
                 value={form.email}
                 onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
                 placeholder="you@example.com"
                 required
-                className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-2.5 text-sm text-white
-                           placeholder-[#3f3f3f] outline-none transition-colors
-                           focus:border-violet-500/50 focus:ring-1 focus:ring-violet-500/30"
+                className="w-full rounded-lg px-3 py-2.5 text-sm outline-none transition-colors"
+                style={{
+                  backgroundColor: 'var(--input-bg)',
+                  color: 'var(--text-primary)',
+                  borderColor: 'var(--input-border)',
+                  border: `1px solid var(--input-border)`,
+                }}
+                onFocus={(e) => {
+                  e.currentTarget.style.borderColor = '#8b5cf6'
+                  e.currentTarget.style.boxShadow = '0 0 0 1px rgba(139, 92, 246, 0.3)'
+                }}
+                onBlur={(e) => {
+                  e.currentTarget.style.borderColor = 'var(--input-border)'
+                  e.currentTarget.style.boxShadow = 'none'
+                }}
               />
             </div>
 
             <div className="space-y-1.5">
-              <label className="block text-xs font-medium text-[#a3a3a3]">Password</label>
+              <label className="block text-xs font-medium" style={{ color: 'var(--text-tertiary)' }}>Password</label>
               <input
                 type="password"
                 value={form.password}
                 onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
                 placeholder="Min. 8 characters"
                 required
-                className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-2.5 text-sm text-white
-                           placeholder-[#3f3f3f] outline-none transition-colors
-                           focus:border-violet-500/50 focus:ring-1 focus:ring-violet-500/30"
+                className="w-full rounded-lg px-3 py-2.5 text-sm outline-none transition-colors"
+                style={{
+                  backgroundColor: 'var(--input-bg)',
+                  color: 'var(--text-primary)',
+                  borderColor: 'var(--input-border)',
+                  border: `1px solid var(--input-border)`,
+                }}
+                onFocus={(e) => {
+                  e.currentTarget.style.borderColor = '#8b5cf6'
+                  e.currentTarget.style.boxShadow = '0 0 0 1px rgba(139, 92, 246, 0.3)'
+                }}
+                onBlur={(e) => {
+                  e.currentTarget.style.borderColor = 'var(--input-border)'
+                  e.currentTarget.style.boxShadow = 'none'
+                }}
               />
             </div>
 
             {error && (
-              <div className="bg-red-500/8 border border-red-500/20 rounded-lg px-3 py-2">
-                <p className="text-xs text-red-400">{error}</p>
+              <div className="rounded-lg px-3 py-2" style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)', borderColor: 'rgba(239, 68, 68, 0.2)', border: '1px solid rgba(239, 68, 68, 0.2)' }}>
+                <p className="text-xs" style={{ color: '#ef4444' }}>{error}</p>
               </div>
             )}
 
             <button
               type="submit"
               disabled={loading}
-              className="w-full bg-violet-600 hover:bg-violet-500 disabled:opacity-50
-                         text-white text-sm font-medium py-2.5 rounded-lg transition-colors cursor-pointer"
+              className="w-full text-white text-sm font-medium py-2.5 rounded-lg transition-colors cursor-pointer disabled:opacity-50 bg-violet-600 hover:bg-violet-500"
             >
               {loading ? 'Creating account…' : 'Create Account'}
             </button>
           </form>
         </div>
 
-        <p className="text-center text-xs text-[#525252] mt-4">
+        <p className="text-center text-xs mt-4" style={{ color: 'var(--text-muted)' }}>
           Already have an account?{' '}
-          <Link to="/login" className="text-violet-400 hover:text-violet-300 transition-colors">
+          <Link to="/login" className="text-violet-500 hover:text-violet-600 transition-colors">
             Sign in
           </Link>
         </p>
