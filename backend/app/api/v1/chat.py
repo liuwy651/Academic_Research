@@ -265,8 +265,8 @@ async def chat_stream(
                     if rc:
                         sse = f"data: {json.dumps({'type': 'thinking_chunk', 'content': rc})}\n\n"
                         if is_router:
-                            _pr_sse.append(sse)
                             _pr_thinking.append(rc)
+                            yield sse  # 思考内容实时推送，不缓冲
                         else:
                             full_thinking_parts.append(rc)
                             yield sse
@@ -285,8 +285,12 @@ async def chat_stream(
                         for kind, text in _process_delta(delta):
                             sse = f"data: {json.dumps({'type': kind, 'content': text})}\n\n"
                             if is_router:
-                                _pr_sse.append(sse)
-                                ((_pr_content if kind == "chunk" else _pr_thinking).append(text))
+                                if kind == "thinking_chunk":
+                                    _pr_thinking.append(text)
+                                    yield sse  # 思考内容实时推送
+                                else:
+                                    _pr_sse.append(sse)
+                                    _pr_content.append(text)
                             else:
                                 if kind == "chunk":
                                     full_content_parts.append(text)
@@ -300,8 +304,12 @@ async def chat_stream(
                     for kind, text in _flush_buf():
                         sse = f"data: {json.dumps({'type': kind, 'content': text})}\n\n"
                         if is_router:
-                            _pr_sse.append(sse)
-                            ((_pr_content if kind == "chunk" else _pr_thinking).append(text))
+                            if kind == "thinking_chunk":
+                                _pr_thinking.append(text)
+                                yield sse  # 思考内容实时推送
+                            else:
+                                _pr_sse.append(sse)
+                                _pr_content.append(text)
                         else:
                             if kind == "chunk":
                                 full_content_parts.append(text)
