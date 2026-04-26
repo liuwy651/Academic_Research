@@ -94,12 +94,11 @@ def main():
             print(f"    layouts count: {len(layouts)}")
             if layouts:
                 print(f"    first layout keys: {list(layouts[0].keys())}")
-                first_text = (
-                    layouts[0].get("markdownText")
-                    or layouts[0].get("text")
-                    or ""
-                )
-                print(f"    first layout text preview: {first_text[:120]!r}")
+                # 打印每个 layout 的 subType，帮助排查乱码来源
+                for i, lay in enumerate(layouts[:10]):
+                    sub = lay.get("subType") or lay.get("type") or "unknown"
+                    text_preview = (lay.get("markdownText") or lay.get("text") or "")[:60]
+                    print(f"      [{i}] subType={sub!r}  text={text_preview!r}")
 
             # 提取文本
             top_md = data.get("markdown") or data.get("markdownText") or ""

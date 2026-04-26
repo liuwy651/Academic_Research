@@ -122,11 +122,17 @@ def _poll_and_fetch_sync(task_id: str) -> str:
     return markdown
 
 
+# DocMind layout subType 中属于图片/公式等非文本内容，提取文本时跳过
+_NON_TEXT_SUBTYPES = {"figure", "image", "picture", "formula", "seal", "barcode", "qrcode"}
+
+
 def _extract_page(data: dict) -> list[str]:
     """从单次 GetDocParserResult 的 data 字典中提取文本片段列表。
 
     实测 layout 字段优先级（以 PDF 为例）：
       markdownContent > markdownText > markdown_text > text
+
+    图片/公式类 layout（subType in _NON_TEXT_SUBTYPES）直接跳过，避免乱码写入向量库。
     """
     parts: list[str] = []
 
@@ -136,9 +142,14 @@ def _extract_page(data: dict) -> list[str]:
         parts.append(top_md.strip())
         return parts
 
-    # 从 layouts 列表逐块提取
+    # 从 layouts 列表逐块提取，跳过非文本 block
     layouts: list[dict] = data.get("layouts") or []
     for layout in layouts:
+        sub_type = (layout.get("subType") or layout.get("type") or "").lower()
+        if sub_type in _NON_TEXT_SUBTYPES:
+            logger.debug("跳过非文本 layout: subType=%s", sub_type)
+            continue
+
         text = (
             layout.get("markdownContent")
             or layout.get("markdownText")
