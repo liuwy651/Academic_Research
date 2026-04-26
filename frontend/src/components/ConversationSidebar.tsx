@@ -1,16 +1,18 @@
 import { useEffect, useRef, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams, useLocation } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Bot, LogOut, MessageSquare, Pencil, Plus, Trash2 } from 'lucide-react'
+import { Bot, Database, LogOut, MessageSquare, Pencil, Plus, Trash2 } from 'lucide-react'
 import { conversationsApi } from '../api/conversations'
 import { useAuthStore } from '../store/authStore'
 import type { Conversation } from '../types/conversation'
 
 export default function ConversationSidebar() {
   const navigate = useNavigate()
+  const location = useLocation()
   const { id: activeId } = useParams<{ id: string }>()
   const queryClient = useQueryClient()
   const { user, clearAuth } = useAuthStore()
+  const isKbActive = location.pathname.startsWith('/knowledge-bases')
 
   const { data, isLoading } = useQuery({
     queryKey: ['conversations'],
@@ -77,6 +79,33 @@ export default function ConversationSidebar() {
         >
           <Plus className="w-3.5 h-3.5" />
           New Chat
+        </button>
+      </div>
+
+      {/* ── Knowledge Base nav ── */}
+      <div className="px-2 py-2 border-b" style={{ borderColor: 'var(--border-subtle)' }}>
+        <button
+          onClick={() => navigate('/knowledge-bases')}
+          className="w-full flex items-center gap-2 px-3 py-1.5 text-xs rounded-md transition-all cursor-pointer"
+          style={{
+            backgroundColor: isKbActive ? 'var(--active-bg)' : 'transparent',
+            color: isKbActive ? 'var(--text-primary)' : 'var(--text-tertiary)',
+          }}
+          onMouseEnter={e => {
+            if (!isKbActive) {
+              e.currentTarget.style.backgroundColor = 'var(--hover-bg)'
+              e.currentTarget.style.color = 'var(--text-secondary)'
+            }
+          }}
+          onMouseLeave={e => {
+            if (!isKbActive) {
+              e.currentTarget.style.backgroundColor = 'transparent'
+              e.currentTarget.style.color = 'var(--text-tertiary)'
+            }
+          }}
+        >
+          <Database className="w-3.5 h-3.5 flex-shrink-0" />
+          Knowledge Base
         </button>
       </div>
 

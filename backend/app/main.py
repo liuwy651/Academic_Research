@@ -11,6 +11,7 @@ from app.api.v1.auth import router as auth_router
 from app.api.v1.conversations import router as conversations_router
 from app.api.v1.chat import router as chat_router
 from app.api.v1.files import router as files_router
+from app.api.v1.knowledge_base import router as kb_router
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +39,7 @@ app.include_router(auth_router, prefix="/api/v1")
 app.include_router(conversations_router, prefix="/api/v1")
 app.include_router(chat_router, prefix="/api/v1")
 app.include_router(files_router, prefix="/api/v1")
+app.include_router(kb_router, prefix="/api/v1")
 
 app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 

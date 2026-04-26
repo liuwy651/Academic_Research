@@ -5,6 +5,8 @@ import LoginPage from './pages/LoginPage'
 import RegisterPage from './pages/RegisterPage'
 import DashboardPage from './pages/DashboardPage'
 import ConversationPage from './pages/ConversationPage'
+import KnowledgeBasePage from './pages/KnowledgeBasePage'
+import KnowledgeBaseDetailPage from './pages/KnowledgeBaseDetailPage'
 
 export default function App() {
   return (
@@ -23,6 +25,8 @@ export default function App() {
       >
         <Route index element={<DashboardPage />} />
         <Route path="conversations/:id" element={<ConversationPage />} />
+        <Route path="knowledge-bases" element={<KnowledgeBasePage />} />
+        <Route path="knowledge-bases/:id" element={<KnowledgeBaseDetailPage />} />
       </Route>
 
       <Route path="*" element={<Navigate to="/" replace />} />

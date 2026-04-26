@@ -51,5 +51,23 @@ class Settings(BaseSettings):
     # MCP filesystem server 授权目录（可在 .env 中用逗号分隔覆盖）
     MCP_FILESYSTEM_PATHS: list[str] = ["/Users/liuwy"]
 
+    # DocMind (阿里云文档解析)
+    DOCMIND_ACCESS_KEY_ID: str = ""
+    DOCMIND_ACCESS_KEY_SECRET: str = ""
+    DOCMIND_ENDPOINT: str = "docmind-api.cn-hangzhou.aliyuncs.com"
+
+    # Milvus
+    MILVUS_HOST: str = "localhost"
+    MILVUS_PORT: int = 19530
+
+    # Embedding
+    EMBEDDING_MODEL: str = "text-embedding-v4"
+    EMBEDDING_DIMENSIONS: int = 1024
+    EMBEDDING_BATCH_SIZE: int = 10
+
+    # Chunking
+    CHUNK_SIZE: int = 500
+    CHUNK_OVERLAP: int = 50
+
 
 settings = Settings()
