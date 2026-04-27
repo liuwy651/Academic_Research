@@ -8,8 +8,12 @@ GetDocParserResult 是分页 API，必须传 layout_num（起始索引）和 lay
 """
 import asyncio
 import logging
+import re
 import time
 from pathlib import Path
+
+# 匹配 Markdown 图片语法 ![alt](url) 及 DocMind 图片占位符 ![][index]
+_IMAGE_PATTERN = re.compile(r'!\[.*?\]\([^)]*\)|!\[\]\[\d+\]')
 
 from app.core.config import settings
 
@@ -139,7 +143,9 @@ def _extract_page(data: dict) -> list[str]:
     # 优先取顶层 markdown 字段
     top_md = data.get("markdown") or data.get("markdownContent") or data.get("markdownText")
     if isinstance(top_md, str) and top_md.strip():
-        parts.append(top_md.strip())
+        cleaned = _IMAGE_PATTERN.sub("", top_md).strip()
+        if cleaned:
+            parts.append(cleaned)
         return parts
 
     # 从 layouts 列表逐块提取，跳过非文本 block
@@ -157,8 +163,9 @@ def _extract_page(data: dict) -> list[str]:
             or layout.get("text")
             or ""
         )
-        if text.strip():
-            parts.append(text.strip())
+        cleaned = _IMAGE_PATTERN.sub("", text).strip()
+        if cleaned:
+            parts.append(cleaned)
 
     return parts
 

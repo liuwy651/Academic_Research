@@ -26,6 +26,9 @@ class ChunkResult:
     vector_rank: int | None = None
     keyword_rank: int | None = None
     rrf_score: float = field(default=0.0, compare=False)
+    parent_id: str = ""
+    parent_content: str = ""  # 从 kb_parent_chunks 取回的大 chunk，供 LLM 消费
+    rerank_score: float = field(default=0.0, compare=False)
 
 
 # ── 两路召回 ──────────────────────────────────────────────────────────────────
@@ -151,10 +154,69 @@ async def _translate_to_english(text: str) -> str:
         return text
 
 
+# ── Parent 上下文获取 ─────────────────────────────────────────────────────────
+
+async def _fetch_parent_contexts(
+    db: AsyncSession,
+    rrf_candidates: list[ChunkResult],
+) -> list[ChunkResult]:
+    """批量查询 parent chunk 内容，去重后填充 parent_content；无 parent 时回退 child content。
+
+    去重策略：同一 parent_id 下只保留 RRF 分数最高的代表 child chunk。
+    """
+    if not rrf_candidates:
+        return []
+
+    child_ids = [c.id for c in rrf_candidates]
+    id_list = ", ".join(f"'{cid}'" for cid in child_ids)
+
+    parent_id_rows = await db.execute(
+        text(f"SELECT id, parent_id FROM kb_chunks WHERE id IN ({id_list})")
+    )
+    child_to_parent: dict[str, str | None] = {
+        row["id"]: row["parent_id"] for row in parent_id_rows.mappings()
+    }
+
+    # 按 parent_id 去重（取 RRF 最高分的代表 child）
+    seen_parents: dict[str, ChunkResult] = {}  # parent_id → best child
+    no_parent: list[ChunkResult] = []
+    for chunk in rrf_candidates:
+        pid = child_to_parent.get(chunk.id)
+        if not pid:
+            no_parent.append(chunk)
+        elif pid not in seen_parents or chunk.rrf_score > seen_parents[pid].rrf_score:
+            seen_parents[pid] = chunk
+
+    # 批量获取 parent content
+    if seen_parents:
+        pid_list = ", ".join(f"'{pid}'" for pid in seen_parents)
+        parent_rows = await db.execute(
+            text(f"SELECT id, content FROM kb_parent_chunks WHERE id IN ({pid_list})")
+        )
+        parent_content_map: dict[str, str] = {
+            row["id"]: row["content"] for row in parent_rows.mappings()
+        }
+    else:
+        parent_content_map = {}
+
+    # 组装结果：先 parent 去重组，再无 parent 组
+    result: list[ChunkResult] = []
+    for pid, chunk in seen_parents.items():
+        chunk.parent_id = pid
+        chunk.parent_content = parent_content_map.get(pid, "")
+        result.append(chunk)
+    result.extend(no_parent)
+
+    # 按原 RRF 分数保持顺序
+    result.sort(key=lambda x: x.rrf_score, reverse=True)
+    return result
+
+
 # ── 公开接口 ──────────────────────────────────────────────────────────────────
 
 _SELECT_THRESHOLD = 0.45
 _COARSE_TOP_K = 3
+_TOP_RERANK_K = 20  # RRF 后传入 Cross-Encoder 的候选数量
 
 
 async def select_relevant_kbs(
@@ -218,34 +280,33 @@ async def retrieve(
     recall_k: int = 20,
     query_vector: list[float] | None = None,
 ) -> list[ChunkResult]:
-    """混合检索主入口：embedding → 两路并发召回 → RRF 融合 → top_n。
+    """混合检索主入口：embedding → 两路并发召回 → RRF → parent 上下文 → Cross-Encoder 重排 → top_n。
 
     Args:
-        db: 异步数据库会话（用于关键词召回）。
+        db: 异步数据库会话（用于关键词召回和 parent 查询）。
         kb_ids: 目标知识库 UUID 列表，支持跨库检索。
         query: 用户原始查询文本。
         top_n: 最终返回的 chunk 数量（注入 Agent 上下文）。
         recall_k: 每路每个 kb 的召回数量。
-        query_vector: 预计算好的查询向量，传入时跳过 embedding 调用（避免自动选库时重复 embed）。
+        query_vector: 预计算好的查询向量，传入时跳过 embedding 调用。
     """
     from app.services.embedding_service import encode_batch, is_cjk_query
+    from app.services import rerank_service
 
     if not kb_ids or not query.strip():
         return []
 
-    # 查询向量化（若外部已传入则跳过，避免自动选库时重复 embed）
     if query_vector is None:
         vectors = await encode_batch([query])
         query_vector = vectors[0]
 
-    # 跨语言：中文查询翻译为英文供关键词召回使用；向量召回保持原始查询
     if is_cjk_query(query):
         keyword_query = await _translate_to_english(query)
         logger.debug("跨语言关键词查询: %r → %r", query[:40], keyword_query[:40])
     else:
         keyword_query = query
 
-    # 跨 kb 并发两路召回
+    # 两路并发召回
     vector_tasks = [_vector_recall(kb_id, query_vector, recall_k) for kb_id in kb_ids]
     keyword_tasks = [_keyword_recall(db, kb_id, keyword_query, recall_k) for kb_id in kb_ids]
 
@@ -266,15 +327,36 @@ async def retrieve(
         else:
             all_keyword_hits.extend(result)
 
-    # 多 kb 时重新全局排名，保证 RRF 在全局候选池上计算
     if len(kb_ids) > 1:
         _rerank_globally(all_vector_hits, "vector_rank")
         _rerank_globally(all_keyword_hits, "keyword_rank")
 
-    result_chunks = _rrf_merge(all_vector_hits, all_keyword_hits, top_n)
+    # RRF 融合：扩大候选到 _TOP_RERANK_K，留给 Cross-Encoder 精排
+    rrf_candidates = _rrf_merge(all_vector_hits, all_keyword_hits, _TOP_RERANK_K)
+
+    # 获取 parent 上下文（新文档），无 parent 的旧文档回退用 child content
+    candidates_with_context = await _fetch_parent_contexts(db, rrf_candidates)
+
+    # Cross-Encoder 重排：使用 parent_content（有则用大 chunk，无则用 child content）
+    rerank_inputs = [
+        (c.id, c.parent_content if c.parent_content else c.content)
+        for c in candidates_with_context
+    ]
+    reranked = await rerank_service.rerank(query, rerank_inputs, top_n)
+    rerank_score_map = {chunk_id: score for chunk_id, score in reranked}
+
+    # 按 rerank_score 排序并截断到 top_n
+    result_ids = {chunk_id for chunk_id, _ in reranked}
+    result_chunks = [
+        c for c in candidates_with_context if c.id in result_ids
+    ]
+    for c in result_chunks:
+        c.rerank_score = rerank_score_map.get(c.id, 0.0)
+    result_chunks.sort(key=lambda x: x.rerank_score, reverse=True)
+    result_chunks = result_chunks[:top_n]
 
     logger.info(
-        "RAG 检索完成: query=%r kb_count=%d vector_hits=%d keyword_hits=%d top_n=%d",
-        query[:50], len(kb_ids), len(all_vector_hits), len(all_keyword_hits), len(result_chunks),
+        "RAG 检索完成: query=%r kb_count=%d rrf_candidates=%d reranked=%d top_n=%d",
+        query[:50], len(kb_ids), len(rrf_candidates), len(reranked), len(result_chunks),
     )
     return result_chunks

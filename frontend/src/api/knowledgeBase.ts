@@ -38,7 +38,7 @@ export const knowledgeBaseApi = {
 
   getChunks: (kbId: string, docId: string) =>
     client
-      .get<{ total: number; chunks: { chunk_index: number; content: string }[] }>(
+      .get<{ total: number; chunks: { index: number; content: string }[]; level: 'parent' | 'child' }>(
         `/knowledge-bases/${kbId}/documents/${docId}/chunks`
       )
       .then(r => r.data),

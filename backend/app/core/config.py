@@ -70,9 +70,14 @@ class Settings(BaseSettings):
     EMBEDDING_DIMENSIONS: int = 1024
     EMBEDDING_BATCH_SIZE: int = 10
 
-    # Chunking
-    CHUNK_SIZE: int = 500
-    CHUNK_OVERLAP: int = 50
+    # Chunking — 分层索引：parent(大 chunk 供 LLM) + child(小 chunk 供向量搜索)
+    PARENT_CHUNK_SIZE: int = 1500
+    PARENT_CHUNK_OVERLAP: int = 150
+    CHILD_CHUNK_SIZE: int = 300
+    CHILD_CHUNK_OVERLAP: int = 30
+
+    # Reranker
+    RERANKER_MODEL: str = "gte-rerank"
 
 
 settings = Settings()

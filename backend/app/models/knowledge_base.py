@@ -46,11 +46,27 @@ class KBDocument(Base):
     knowledge_base: Mapped["KnowledgeBase"] = relationship("KnowledgeBase", back_populates="documents")
 
 
-class KBChunk(Base):
-    """PostgreSQL 端的文档切块存储，用于 pg_trgm 关键词搜索。
+class KBParentChunk(Base):
+    """父级切块（≈1500 字），存储供 LLM 消费的完整上下文。
 
-    id 与 Milvus 中的 chunk id 完全一致（md5(doc_id_hex + "_" + chunk_index)），
-    作为向量召回与关键词召回结果在 RRF 融合时的去重 key。
+    id 规则：md5(doc_id_hex + "_p_" + parent_index)
+    """
+    __tablename__ = "kb_parent_chunks"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    kb_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    doc_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    parent_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
+
+
+class KBChunk(Base):
+    """子级切块（≈300 字），用于 pg_trgm 关键词搜索 + Milvus 向量索引。
+
+    id 与 Milvus 中的 chunk id 完全一致（md5(doc_id_hex + "_" + chunk_index)）。
+    parent_id 关联 kb_parent_chunks.id，旧文档为 NULL（向后兼容）。
     """
     __tablename__ = "kb_chunks"
 
@@ -60,4 +76,5 @@ class KBChunk(Base):
     filename: Mapped[str] = mapped_column(String(255), nullable=False)
     chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
+    parent_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)

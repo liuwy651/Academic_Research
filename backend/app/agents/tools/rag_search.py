@@ -111,8 +111,9 @@ def _format_results(query: str, results) -> str:
 
     lines = [f"## 知识库检索结果（查询：{query}）\n"]
     for i, chunk in enumerate(results, 1):
+        context = chunk.parent_content if chunk.parent_content else chunk.content
         lines.append(
             f"### 片段 {i}（来源：{chunk.filename}，第 {chunk.chunk_index + 1} 块）\n"
-            f"{chunk.content}\n"
+            f"{context}\n"
         )
     return "\n".join(lines)

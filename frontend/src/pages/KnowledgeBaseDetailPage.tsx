@@ -49,7 +49,7 @@ function StatusBadge({ doc }: { doc: KBDocument }) {
 
 // ── 切块预览面板 ──────────────────────────────────────────────────────
 
-function ChunkPanel({ kbId, docId }: { kbId: string; docId: string }) {
+function ChunkPanel({ kbId, docId, chunkCount }: { kbId: string; docId: string; chunkCount?: number | null }) {
   const { data, isLoading, isError } = useQuery({
     queryKey: ['kb-chunks', kbId, docId],
     queryFn: () => knowledgeBaseApi.getChunks(kbId, docId),
@@ -72,12 +72,24 @@ function ChunkPanel({ kbId, docId }: { kbId: string; docId: string }) {
   }
 
   const chunks = data?.chunks ?? []
+  const isParent = data?.level === 'parent'
 
   return (
-    <div className="mt-2 space-y-2 max-h-96 overflow-y-auto pr-1">
+    <>
+      <div className="flex items-center gap-2 mb-2">
+        <span className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>
+          {isParent ? '段落预览' : '切块预览'}
+        </span>
+        <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+          {isParent
+            ? `共 ${chunks.length} 段${chunkCount != null ? `（${chunkCount} 个检索块）` : ''}`
+            : `共 ${chunks.length} 块`}
+        </span>
+      </div>
+    <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
       {chunks.map(chunk => (
         <div
-          key={chunk.chunk_index}
+          key={chunk.index}
           className="rounded-lg px-3 py-2.5"
           style={{ backgroundColor: 'var(--bg-primary)', border: '1px solid var(--border-subtle)' }}
         >
@@ -86,7 +98,7 @@ function ChunkPanel({ kbId, docId }: { kbId: string; docId: string }) {
               className="text-[10px] font-mono px-1.5 py-0.5 rounded"
               style={{ backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-muted)' }}
             >
-              #{chunk.chunk_index + 1}
+              {isParent ? `段落 ${chunk.index + 1}` : `#${chunk.index + 1}`}
             </span>
             <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
               {chunk.content.length} 字符
@@ -98,6 +110,7 @@ function ChunkPanel({ kbId, docId }: { kbId: string; docId: string }) {
         </div>
       ))}
     </div>
+    </>
   )
 }
 
@@ -197,15 +210,9 @@ function DocRow({
           className="px-4 pb-4 border-t"
           style={{ borderColor: 'var(--border-subtle)' }}
         >
-          <div className="pt-3 flex items-center gap-2 mb-1">
-            <span className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>
-              切块预览
-            </span>
-            <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
-              共 {doc.chunk_count ?? '—'} 块
-            </span>
+          <div className="pt-3 mb-1">
+            <ChunkPanel kbId={kbId} docId={doc.id} chunkCount={doc.chunk_count} />
           </div>
-          <ChunkPanel kbId={kbId} docId={doc.id} />
         </div>
       )}
     </div>

@@ -187,7 +187,9 @@ async def get_document_chunks(
     kb=Depends(_require_kb),
     db: AsyncSession = Depends(get_db),
 ):
-    """返回文档所有切块（仅 chunk_index + content，不含向量）。"""
+    """返回文档切块预览。优先返回 parent 大块，旧文档回退到 child 小块。"""
+    from sqlalchemy import text
+
     try:
         doc = await kb_svc.get_document(db, kb_id, doc_id)
     except ValueError as exc:
@@ -195,10 +197,20 @@ async def get_document_chunks(
     if doc.status != "completed":
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="文档尚未处理完成")
 
-    import asyncio
+    rows = (await db.execute(
+        text("SELECT parent_index, content FROM kb_parent_chunks WHERE doc_id = :doc_id ORDER BY parent_index"),
+        {"doc_id": doc.id.hex},
+    )).mappings().all()
+
+    if rows:
+        chunks = [{"index": r["parent_index"], "content": r["content"]} for r in rows]
+        return {"total": len(chunks), "chunks": chunks, "level": "parent"}
+
+    # 旧文档：回退到 Milvus child 小块
     from app.services import milvus_service
-    chunks = await asyncio.to_thread(milvus_service.query_doc_chunks, kb_id, doc_id)
-    return {"total": len(chunks), "chunks": chunks}
+    raw = await asyncio.to_thread(milvus_service.query_doc_chunks, kb_id, doc_id)
+    chunks = [{"index": r["chunk_index"], "content": r["content"]} for r in raw]
+    return {"total": len(chunks), "chunks": chunks, "level": "child"}
 
 
 @router.delete("/{kb_id}/documents/{doc_id}", status_code=status.HTTP_204_NO_CONTENT)
