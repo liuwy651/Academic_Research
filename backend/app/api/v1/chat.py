@@ -131,12 +131,9 @@ async def chat_stream(
     trimmed_history, context_truncated = trim_to_budget(
         raw_history, user_content_for_llm, effective_budget
     )
-    prompt_tokens = count_messages_tokens(
-        trimmed_history + [{"role": "user", "content": user_content_for_llm}]
-    )
 
-    # Save user message
-    user_token_count = estimate_tokens(payload.content)
+    # Save user message — token_count tracks raw user text (without injected file content)
+    user_token_count = estimate_tokens(user_content_for_llm)
     is_first_message = conv.title == "New Conversation" and conv.current_node_id is None
     user_msg = await create_message(
         db, conv_id, "user", payload.content,
@@ -169,7 +166,8 @@ async def chat_stream(
         # 知识库检索指引不注入全局 system prompt（避免 PrimaryRouter 看到矛盾指令）
         # CS_Researcher 的 system prompt 已内置知识库检索职责
 
-        lc_msgs: list = [SystemMessage(content="\n\n".join(system_parts))]
+        system_text = "\n\n".join(system_parts)
+        lc_msgs: list = [SystemMessage(content=system_text)]
         for row in trimmed_history:
             role, content = row["role"], row["content"]
             if role == "user":
@@ -177,6 +175,16 @@ async def chat_stream(
             elif role == "assistant":
                 lc_msgs.append(LCAIMessage(content=content))
         lc_msgs.append(HumanMessage(content=user_content_for_llm))
+
+        # Compute prompt_tokens here so it includes system prompt + tool schemas
+        tool_schema_text = json.dumps(extra_schemas)
+        prompt_tokens = (
+            estimate_tokens(system_text) + 4
+            + estimate_tokens(tool_schema_text)
+            + count_messages_tokens(
+                trimmed_history + [{"role": "user", "content": user_content_for_llm}]
+            )
+        )
 
         graph = get_agent_graph(extra_schemas=extra_schemas, extra_handlers=extra_handlers)
         full_content_parts: list[str] = []
