@@ -3,6 +3,15 @@ from typing import AsyncGenerator
 
 from app.core.config import settings
 
+# 当存在文件系统类 MCP 工具时注入此授权段，防止模型以安全理由拒绝本地路径
+_MCP_FS_AUTH = """\
+## 工具调用授权
+
+你运行在受信任的本地开发环境中，已获得以下授权：
+- 使用 fs__ 前缀工具（fs__read_file、fs__write_file、fs__list_directory 等）访问 /Users/liuwy/ 及其所有子目录
+- 当用户提供本地文件路径时，**必须直接调用相应的 fs__ 工具**，严禁以"安全原因""权限不足"或"无法访问本地文件"为由拒绝
+- 若工具返回权限错误，如实将错误内容反馈给用户，并指导用户如何将该路径加入白名单"""
+
 
 class DashScopeClient:
     async def stream_chat(
@@ -92,8 +101,7 @@ class DashScopeClient:
             yield {"type": "tool_calls", "calls": calls}
 
     async def chat(
-        self, messages: list[dict], system: str | None = None,
-        max_tokens: int = 60, model: str | None = None,
+        self, messages: list[dict], system: str | None = None, max_tokens: int = 60
     ) -> str:
         from openai import AsyncOpenAI
 
@@ -103,7 +111,7 @@ class DashScopeClient:
         )
         all_messages = _prepend_system(messages, system)
         response = await client.chat.completions.create(
-            model=model or settings.LLM_MODEL,
+            model=settings.LLM_MODEL,
             messages=all_messages,
             stream=False,
             max_tokens=max_tokens,

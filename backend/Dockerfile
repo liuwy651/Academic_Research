@@ -1,7 +1,8 @@
-FROM python:3.11-slim
+FROM python:3.11-slim-bookworm
 
-# 系统依赖：curl（健康检查用）、libgomp（pymupdf/numpy 需要）
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# 换阿里云镜像源，避免 deb.debian.org 在国内网络不稳定
+RUN sed -i 's|http://deb.debian.org|https://mirrors.aliyun.com|g' /etc/apt/sources.list.d/debian.sources \
+    && apt-get update && apt-get install -y --no-install-recommends \
     curl \
     libgomp1 \
     && rm -rf /var/lib/apt/lists/*

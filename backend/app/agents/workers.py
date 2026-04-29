@@ -112,18 +112,22 @@ def _heal_tool_calls(response: AIMessage) -> AIMessage:
         calls_raw = json.loads(match.group(1))
         tool_calls = []
         for i, call in enumerate(calls_raw):
-            if not isinstance(call, dict) or "name" not in call:
+            if not isinstance(call, dict):
                 continue
-            args = call.get("arguments", call.get("args", {}))
+            # 兼容多种字段名：name/function, arguments/parameters/args
+            tool_name = call.get("name") or call.get("function")
+            if not tool_name:
+                continue
+            args = call.get("arguments") or call.get("parameters") or call.get("args") or {}
             if isinstance(args, str):
                 try:
                     args = json.loads(args)
                 except Exception:
                     args = {}
             tool_calls.append({
-                "name": call["name"],
+                "name": tool_name,
                 "args": args if isinstance(args, dict) else {},
-                "id": f"synthetic_{i}_{call['name']}",
+                "id": f"synthetic_{i}_{tool_name}",
                 "type": "tool_call",
             })
         if tool_calls:
