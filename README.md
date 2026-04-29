@@ -1,7 +1,8 @@
-# Agent 对话系统
+# Academic Research 的Agent多轮对话系统
 
 一个支持多轮对话、工具调用、多 Agent 协作、知识库检索的全栈 AI 对话平台。
 ![alt text](IMG/展示图片.png)
+
 ## 功能特性
 
 - **多轮对话** — 完整上下文记忆，支持树状分支对话
